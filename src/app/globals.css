@@ -224,31 +224,8 @@ body {
   }
   .back-btn:active { background: var(--bg-active); transform: scale(0.9); }
 
-  /* ── LIQUID GLASS BOTTOM NAV — позиционируется в BottomNav.tsx ───── */
-  /* LiquidGlass компонент рендерит свой контейнер, .bottom-nav не нужен */
-
-  .nav-item {
-    position: relative;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 2px;
-    padding: 7px 14px;
-    border-radius: 9999px;
-    cursor: pointer;
-    min-width: 54px;
-    transition: background 0.2s ease, transform 0.2s var(--spring-bounce);
-    -webkit-tap-highlight-color: transparent;
-    text-decoration: none;
-  }
-
-  .nav-item.active {
-    background: rgba(30,111,235,0.15);
-    box-shadow:
-      0 1px 3px rgba(30,111,235,0.12),
-      inset 0 1px 0 rgba(255,255,255,0.5);
-  }
-
-  .nav-item:active { transform: scale(0.87); }
+  /* ── BOTTOM NAV ─────────────────────────────────────────── */
+  .pb-nav { padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
 
   /* FIX: page-header — фиксированная высота чтобы не прыгал */
   .page-header {
