@@ -82,9 +82,13 @@ export default function BottomNav() {
     <nav style={{
       position: 'fixed',
       bottom: 'calc(14px + env(safe-area-inset-bottom, 0px))',
-      left: '50%',
-      transform: 'translateX(-50%)',
+      left: 0,
+      right: 0,
+      display: 'flex',
+      justifyContent: 'center',
       zIndex: 50,
+      pointerEvents: 'none',
+      pointerEvents: 'auto',
       // Pill shape
       display: 'inline-flex',
       alignItems: 'center',
