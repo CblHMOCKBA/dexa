@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import type { Room, RoomMessage, RoomMember } from '@/types'
+import type { Room, RoomMessage, RoomMember, Listing } from '@/types'
 import Avatar from '@/components/ui/Avatar'
 
 type Props = {
@@ -15,23 +15,30 @@ type Props = {
   myRole: 'owner' | 'admin' | 'member'
 }
 
-export default function RoomWindowClient({ room, initialMessages, members, currentUserId, myRole }: Props) {
+export default function RoomWindowClient({ room, initialMessages, members: initialMembers, currentUserId, myRole }: Props) {
   const router = useRouter()
-  const [msgs, setMsgs]           = useState<RoomMessage[]>(initialMessages)
-  const [text, setText]           = useState('')
-  const [sending, setSending]     = useState(false)
-  const [showMembers, setShowMembers] = useState(false)
-  const [showInvite, setShowInvite]   = useState(false)
-  const [inviteCode, setInviteCode]   = useState<string | null>(null)
-  const [copyDone, setCopyDone]       = useState(false)
+  const [msgs, setMsgs]               = useState<RoomMessage[]>(initialMessages)
+  const [members, setMembers]          = useState<RoomMember[]>(initialMembers)
+  const [text, setText]                = useState('')
+  const [sending, setSending]          = useState(false)
+  const [panel, setPanel]              = useState<'none' | 'members' | 'invite' | 'share'>('none')
+  const [inviteCode, setInviteCode]    = useState<string | null>(null)
+  const [copyDone, setCopyDone]        = useState(false)
+  const [myListings, setMyListings]    = useState<Listing[]>([])
+  const [loadingListings, setLoadingListings] = useState(false)
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLTextAreaElement>(null)
   const seenIds   = useRef<Set<string>>(new Set(initialMessages.map(m => m.id)))
 
+  const isAdmin = myRole === 'owner' || myRole === 'admin'
+
+  // Скролл вниз
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'instant' })
+    bottomRef.current?.scrollIntoView({ behavior: msgs.length <= initialMessages.length ? 'instant' : 'smooth' })
   }, [msgs])
 
+  // Realtime
   useEffect(() => {
     const supabase = createClient()
     const ch = supabase
@@ -49,29 +56,53 @@ export default function RoomWindowClient({ room, initialMessages, members, curre
     return () => { supabase.removeChannel(ch) }
   }, [room.id])
 
+  // Загрузка участников при открытии панели
+  useEffect(() => {
+    if (panel !== 'members') return
+    const supabase = createClient()
+    supabase.from('room_members').select('*, profile:profiles(*)').eq('room_id', room.id)
+      .then(({ data }) => { if (data) setMembers(data as RoomMember[]) })
+  }, [panel])
+
+  // Загрузка товаров для шеринга
+  useEffect(() => {
+    if (panel !== 'share') return
+    if (myListings.length > 0) return
+    setLoadingListings(true)
+    const supabase = createClient()
+    supabase.from('listings').select('id,title,price,brand,status')
+      .eq('seller_id', currentUserId).eq('status', 'active')
+      .order('created_at', { ascending: false }).limit(20)
+      .then(({ data }) => { setMyListings((data as Listing[]) ?? []); setLoadingListings(false) })
+  }, [panel])
+
   function resize(el: HTMLTextAreaElement) {
     el.style.height = 'auto'
     el.style.height = Math.min(el.scrollHeight, 100) + 'px'
   }
 
-  async function send() {
-    const t = text.trim()
+  async function send(customText?: string) {
+    const t = (customText ?? text).trim()
     if (!t || sending) return
-    setSending(true); setText('')
-    if (inputRef.current) inputRef.current.style.height = 'auto'
+    setSending(true)
+    if (!customText) { setText(''); if (inputRef.current) inputRef.current.style.height = 'auto' }
     const supabase = createClient()
-    const { data } = await supabase
-      .from('room_messages')
+    const { data } = await supabase.from('room_messages')
       .insert({ room_id: room.id, sender_id: currentUserId, text: t })
       .select('id').single()
     if (data?.id) seenIds.current.add(data.id)
     setSending(false)
   }
 
+  async function shareListingCard(listing: Listing) {
+    const t = `📦 *${listing.title}*\n💰 ${listing.price.toLocaleString('ru-RU')} ₽${listing.brand ? `\n🏷 ${listing.brand}` : ''}`
+    await send(t)
+    setPanel('none')
+  }
+
   async function generateInvite() {
     const supabase = createClient()
-    const { data } = await supabase
-      .from('invite_links')
+    const { data } = await supabase.from('invite_links')
       .insert({ room_id: room.id, created_by: currentUserId })
       .select('code').single()
     if (data) setInviteCode(data.code)
@@ -81,16 +112,14 @@ export default function RoomWindowClient({ room, initialMessages, members, curre
     if (!inviteCode) return
     const url = `${window.location.origin}/join/${inviteCode}`
     await navigator.clipboard.writeText(url)
-    setCopyDone(true)
-    setTimeout(() => setCopyDone(false), 2000)
+    setCopyDone(true); setTimeout(() => setCopyDone(false), 2200)
   }
 
   async function kickMember(userId: string) {
     if (userId === currentUserId) return
     const supabase = createClient()
-    await supabase.from('room_members')
-      .delete().eq('room_id', room.id).eq('user_id', userId)
-    router.refresh()
+    await supabase.from('room_members').delete().eq('room_id', room.id).eq('user_id', userId)
+    setMembers(prev => prev.filter(m => m.user_id !== userId))
   }
 
   function senderName(senderId: string) {
@@ -98,24 +127,35 @@ export default function RoomWindowClient({ room, initialMessages, members, curre
     return m?.profile?.name ?? 'Участник'
   }
 
-  const isAdmin = myRole === 'owner' || myRole === 'admin'
+  function isSameGroup(i: number) {
+    if (i === 0) return false
+    return msgs[i].sender_id === msgs[i - 1].sender_id
+  }
+
+  function togglePanel(p: typeof panel) {
+    setPanel(prev => prev === p ? 'none' : p)
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: '#F2F3F5' }}>
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      height: '100dvh', background: '#F2F3F5',
+      overflow: 'hidden', // ← изолируем overflow
+    }}>
 
-      {/* Header */}
+      {/* ── HEADER ── */}
       <div style={{
+        flexShrink: 0, zIndex: 10,
         display: 'flex', alignItems: 'center', gap: 10,
-        padding: '12px 16px', paddingTop: 'calc(12px + var(--sat))',
-        background: '#fff', borderBottom: '1px solid #E0E1E6', flexShrink: 0,
+        padding: '0 12px 10px', paddingTop: 'calc(10px + var(--sat))',
+        background: 'rgba(255,255,255,0.97)',
+        backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+        borderBottom: '1px solid #E8E9ED',
       }}>
-        <Link href="/chat">
-          <div className="btn-icon" style={{ border: 'none', background: 'transparent' }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
-              stroke="#1E6FEB" strokeWidth="2.5" strokeLinecap="round">
-              <path d="m15 18-6-6 6-6"/>
-            </svg>
-          </div>
+        <Link href="/chat" style={{ display: 'flex', alignItems: 'center', color: '#1E6FEB', textDecoration: 'none' }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1E6FEB" strokeWidth="2.5" strokeLinecap="round">
+            <path d="m15 18-6-6 6-6"/>
+          </svg>
         </Link>
 
         <div style={{
@@ -126,105 +166,137 @@ export default function RoomWindowClient({ room, initialMessages, members, curre
           {room.name[0].toUpperCase()}
         </div>
 
-        {/* FIX: убран дублирующийся style prop — был баг с двумя style на одном div */}
-        <div
-          style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
-          onClick={() => { setShowMembers(s => !s); setShowInvite(false) }}
-        >
-          <p style={{ fontWeight: 700, fontSize: 15, color: '#1A1C21', lineHeight: 1.2 }}>
-            {room.name}
-          </p>
-          <p style={{ fontSize: 11, color: '#9498AB', fontFamily: 'var(--font-mono)' }}>
-            {members.length} участников · нажми для списка
+        <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+          onClick={() => togglePanel('members')}>
+          <p style={{ fontWeight: 700, fontSize: 16, color: '#1A1C21', lineHeight: 1.2 }}>{room.name}</p>
+          <p style={{ fontSize: 12, color: '#9498AB' }}>
+            {members.length} {members.length === 1 ? 'участник' : members.length < 5 ? 'участника' : 'участников'}
           </p>
         </div>
 
-        {isAdmin && (
-          <button
-            onClick={() => { setShowInvite(s => !s); setShowMembers(false) }}
-            className="btn-icon"
-            style={{
-              background: showInvite ? '#EBF2FF' : 'transparent',
-              border: showInvite ? 'none' : '1px solid #E0E1E6',
-            }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-              stroke={showInvite ? '#1E6FEB' : '#9498AB'} strokeWidth="2">
-              <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <line x1="19" y1="8" x2="19" y2="14"/>
-              <line x1="22" y1="11" x2="16" y2="11"/>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {/* Поделиться товаром */}
+          <button onClick={() => togglePanel('share')} style={{
+            width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
+            background: panel === 'share' ? '#EBF2FF' : '#F2F3F5',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={panel === 'share' ? '#1E6FEB' : '#9498AB'} strokeWidth="2">
+              <rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/>
+              <rect x="3" y="13" width="8" height="8" rx="1"/>
+              <path d="M13 17h8M17 13v8"/>
             </svg>
           </button>
-        )}
+
+          {/* Invite — только для admin */}
+          {isAdmin && (
+            <button onClick={() => togglePanel('invite')} style={{
+              width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
+              background: panel === 'invite' ? '#EBF2FF' : '#F2F3F5',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={panel === 'invite' ? '#1E6FEB' : '#9498AB'} strokeWidth="2">
+                <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <line x1="19" y1="8" x2="19" y2="14"/>
+                <line x1="22" y1="11" x2="16" y2="11"/>
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Список участников */}
-      {showMembers && (
+      {/* ── ПАНЕЛЬ: УЧАСТНИКИ ── */}
+      {panel === 'members' && (
         <div style={{
-          background: '#fff', borderBottom: '1px solid #E0E1E6',
-          padding: '12px 16px', flexShrink: 0,
-          maxHeight: 220, overflowY: 'auto',
-          animation: 'fade-up 0.15s ease both',
+          flexShrink: 0, background: 'white', borderBottom: '1px solid #E8E9ED',
+          maxHeight: 240, overflowY: 'auto', animation: 'slide-up 0.2s var(--spring-smooth) both',
         }}>
-          <p style={{
-            fontSize: 11, fontWeight: 700, color: '#9498AB',
-            textTransform: 'uppercase', letterSpacing: '0.05em',
-            fontFamily: 'var(--font-mono)', marginBottom: 8,
-          }}>
-            Участники · {members.length}
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {members.map(m => (
-              <div key={m.user_id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Avatar name={m.profile?.name ?? '?'} size="xs" />
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21' }}>
-                    {m.profile?.name ?? 'Участник'}
-                    {m.user_id === currentUserId && (
-                      <span style={{ color: '#9498AB', fontWeight: 400 }}> (вы)</span>
-                    )}
-                  </p>
-                  {m.profile?.location && (
-                    <p style={{ fontSize: 11, color: '#9498AB', fontFamily: 'var(--font-mono)' }}>
-                      {m.profile.location}
-                    </p>
-                  )}
-                </div>
-                <span style={{
-                  fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 700,
-                  padding: '2px 7px', borderRadius: 5,
-                  background: m.role === 'owner' ? '#FFF8E0' : m.role === 'admin' ? '#EBF2FF' : '#F2F3F5',
-                  color: m.role === 'owner' ? '#7A5E00' : m.role === 'admin' ? '#1249A8' : '#9498AB',
-                }}>
-                  {m.role}
-                </span>
-                {isAdmin && m.user_id !== currentUserId && m.role !== 'owner' && (
-                  <button onClick={() => kickMember(m.user_id)} style={{
-                    width: 26, height: 26, borderRadius: 6, border: 'none',
-                    background: '#FFEBEA', color: '#E8251F', cursor: 'pointer',
-                    fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    ×
-                  </button>
-                )}
-              </div>
-            ))}
+          <div style={{ padding: '10px 16px 4px', position: 'sticky', top: 0, background: 'white' }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Участники · {members.length}
+            </p>
           </div>
+          {members.map(m => (
+            <div key={m.user_id} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '8px 16px',
+              borderBottom: '1px solid #F2F3F5',
+            }}>
+              <Avatar name={m.profile?.name ?? '?'} size="xs" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21' }}>
+                  {m.profile?.name ?? 'Участник'}
+                  {m.user_id === currentUserId && <span style={{ color: '#9498AB', fontWeight: 400 }}> (вы)</span>}
+                </p>
+                {m.profile?.location && <p style={{ fontSize: 11, color: '#9498AB' }}>{m.profile.location}</p>}
+              </div>
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 5,
+                background: m.role === 'owner' ? '#FFF8E0' : m.role === 'admin' ? '#EBF2FF' : '#F2F3F5',
+                color: m.role === 'owner' ? '#7A5E00' : m.role === 'admin' ? '#1249A8' : '#9498AB',
+              }}>
+                {m.role === 'owner' ? 'owner' : m.role === 'admin' ? 'admin' : 'member'}
+              </span>
+              {isAdmin && m.user_id !== currentUserId && m.role !== 'owner' && (
+                <button onClick={() => kickMember(m.user_id)} style={{
+                  width: 26, height: 26, borderRadius: 6, border: 'none',
+                  background: '#FFEBEA', color: '#E8251F', cursor: 'pointer',
+                  fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>×</button>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Invite панель */}
-      {showInvite && (
+      {/* ── ПАНЕЛЬ: ПОДЕЛИТЬСЯ ТОВАРОМ ── */}
+      {panel === 'share' && (
         <div style={{
-          background: '#fff', borderBottom: '1px solid #E0E1E6',
-          padding: '12px 16px', flexShrink: 0,
-          animation: 'fade-up 0.15s ease both',
+          flexShrink: 0, background: 'white', borderBottom: '1px solid #E8E9ED',
+          padding: '12px 16px', animation: 'slide-up 0.2s var(--spring-smooth) both',
+          maxHeight: 260, overflowY: 'auto',
         }}>
-          <p style={{
-            fontSize: 12, fontWeight: 700, color: '#9498AB',
-            textTransform: 'uppercase', letterSpacing: '0.05em',
-            fontFamily: 'var(--font-mono)', marginBottom: 10,
-          }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+            Поделиться товаром в комнате
+          </p>
+          {loadingListings ? (
+            <p style={{ fontSize: 13, color: '#9498AB', textAlign: 'center', padding: '12px 0' }}>Загрузка...</p>
+          ) : myListings.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {myListings.map(l => (
+                <button key={l.id} onClick={() => shareListingCard(l)} style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                  background: '#F8F9FB', borderRadius: 12, padding: '10px 12px',
+                  border: '1.5px solid #E0E1E6', cursor: 'pointer', textAlign: 'left',
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21' }}>{l.title}</p>
+                    <p style={{ fontSize: 12, color: '#00B173', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                      {l.price.toLocaleString('ru-RU')} ₽
+                    </p>
+                  </div>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9498AB" strokeWidth="2">
+                    <path d="m22 2-7 20-4-9-9-4 20-7z"/>
+                  </svg>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p style={{ fontSize: 13, color: '#9498AB', textAlign: 'center', padding: '12px 0' }}>
+              Нет активных товаров на складе
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── ПАНЕЛЬ: INVITE ── */}
+      {panel === 'invite' && (
+        <div style={{
+          flexShrink: 0, background: 'white', borderBottom: '1px solid #E8E9ED',
+          padding: '12px 16px', animation: 'slide-up 0.2s var(--spring-smooth) both',
+        }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
             Пригласить участников
           </p>
           {!inviteCode ? (
@@ -237,90 +309,90 @@ export default function RoomWindowClient({ room, initialMessages, members, curre
             </button>
           ) : (
             <div style={{ display: 'flex', gap: 8 }}>
-              <div style={{
-                flex: 1, background: '#F2F3F5', borderRadius: 10,
-                padding: '10px 12px', overflow: 'hidden',
-              }}>
-                <p style={{ fontSize: 11, color: '#9498AB', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
-                  Ссылка
-                </p>
-                <p style={{
-                  fontSize: 12, color: '#1A1C21', fontFamily: 'var(--font-mono)',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                }}>
+              <div style={{ flex: 1, background: '#F2F3F5', borderRadius: 10, padding: '10px 12px', minWidth: 0 }}>
+                <p style={{ fontSize: 11, color: '#9498AB', marginBottom: 2 }}>Ссылка</p>
+                <p style={{ fontSize: 12, color: '#1A1C21', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {`${typeof window !== 'undefined' ? window.location.origin : ''}/join/${inviteCode}`}
                 </p>
               </div>
               <button onClick={copyInvite} style={{
-                padding: '0 16px', borderRadius: 10,
+                padding: '0 16px', borderRadius: 10, border: 'none',
                 background: copyDone ? '#E6F9F3' : '#1E6FEB',
                 color: copyDone ? '#006644' : '#fff',
-                border: 'none', fontSize: 13, fontWeight: 700,
-                cursor: 'pointer', flexShrink: 0, transition: 'all 0.2s',
+                fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+                transition: 'all 0.2s',
               }}>
-                {copyDone ? '✓ Скопировано' : 'Копировать'}
+                {copyDone ? '✓' : 'Копировать'}
               </button>
             </div>
           )}
           <p style={{ fontSize: 11, color: '#9498AB', marginTop: 8 }}>
-            Код комнаты:{' '}
-            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#1A1C21' }}>
-              {room.invite_code}
-            </span>
+            Код: <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#1A1C21' }}>{room.invite_code}</span>
           </p>
         </div>
       )}
 
-      {/* Сообщения */}
+      {/* ── СООБЩЕНИЯ — только этот блок скроллится ── */}
       <div style={{
-        flex: 1, overflowY: 'auto', padding: '12px',
-        display: 'flex', flexDirection: 'column', gap: 6,
+        flex: 1, overflowY: 'auto', padding: '10px 12px',
+        display: 'flex', flexDirection: 'column', gap: 2,
+        WebkitOverflowScrolling: 'touch',
       }}>
         {msgs.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <p style={{ fontSize: 32, marginBottom: 8 }}>👋</p>
-            <p style={{ color: '#9498AB', fontSize: 14 }}>
-              Начало комнаты «{room.name}»
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 0', gap: 6 }}>
+            <div style={{ fontSize: 48 }}>👋</div>
+            <p style={{ fontWeight: 700, color: '#1A1C21', marginTop: 4 }}>{room.name}</p>
+            <p style={{ fontSize: 13, color: '#9498AB', textAlign: 'center', maxWidth: 200 }}>
+              {room.description ?? 'Начало групповой комнаты'}
             </p>
           </div>
         )}
-        {msgs.map(m => {
-          const own  = m.sender_id === currentUserId
-          const name = own ? 'Вы' : senderName(m.sender_id)
+
+        {msgs.map((m, i) => {
+          const own   = m.sender_id === currentUserId
+          const group = isSameGroup(i)
+          const name  = senderName(m.sender_id)
+          const showAvatar = !own && (i === msgs.length - 1 || msgs[i + 1]?.sender_id !== m.sender_id)
+
           return (
             <div key={m.id} style={{
               display: 'flex',
               justifyContent: own ? 'flex-end' : 'flex-start',
               alignItems: 'flex-end', gap: 6,
+              marginTop: group ? 1 : 8,
             }}>
-              {!own && <Avatar name={name} size="xs" />}
+              {!own && (
+                <div style={{ width: 28, flexShrink: 0 }}>
+                  {showAvatar ? <Avatar name={name} size="xs" /> : null}
+                </div>
+              )}
+
               <div style={{ maxWidth: '78%' }}>
-                {!own && (
-                  <p style={{
-                    fontSize: 11, fontWeight: 700, color: '#1E6FEB',
-                    marginBottom: 3, paddingLeft: 4,
-                  }}>
+                {!own && !group && (
+                  <p style={{ fontSize: 11, fontWeight: 700, color: '#1E6FEB', marginBottom: 2, paddingLeft: 4 }}>
                     {name}
                   </p>
                 )}
                 <div style={{
-                  padding: '9px 13px',
-                  borderRadius: own ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                  padding: '8px 12px',
+                  borderRadius: own
+                    ? (group ? '18px 4px 4px 18px' : '18px 18px 4px 18px')
+                    : (group ? '4px 18px 18px 4px' : '4px 18px 18px 18px'),
                   background: own ? '#2AABEE' : '#fff',
                   color: own ? '#fff' : '#1A1C21',
                   fontSize: 15, lineHeight: 1.45,
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-                  whiteSpace: 'pre-wrap',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 }}>
                   {m.text}
+                  <span style={{
+                    fontSize: 10, opacity: 0.65, marginLeft: 8, float: 'right',
+                    marginTop: 2, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap',
+                  }}>
+                    {new Date(m.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                    {own && ' ✓'}
+                  </span>
                 </div>
-                <p style={{
-                  fontSize: 10, color: '#9498AB', fontFamily: 'var(--font-mono)',
-                  marginTop: 3, textAlign: own ? 'right' : 'left',
-                }}>
-                  {new Date(m.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                  {m.is_edited && ' · изменено'}
-                </p>
               </div>
             </div>
           )
@@ -328,45 +400,41 @@ export default function RoomWindowClient({ room, initialMessages, members, curre
         <div ref={bottomRef} />
       </div>
 
-      {/* Инпут */}
+      {/* ── INPUT ── */}
       <div style={{
+        flexShrink: 0,
         display: 'flex', alignItems: 'flex-end', gap: 8,
-        padding: '8px 12px',
-        paddingBottom: 'calc(8px + var(--sab))',
-        background: '#fff', borderTop: '1px solid #E0E1E6', flexShrink: 0,
+        padding: '8px 12px', paddingBottom: 'calc(10px + var(--sab))',
+        background: 'rgba(255,255,255,0.97)',
+        backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+        borderTop: '1px solid #E8E9ED',
       }}>
         <textarea
           ref={inputRef}
           value={text}
           onChange={e => { setText(e.target.value); resize(e.target) }}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
-          }}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
           placeholder={`Сообщение в ${room.name}...`}
           rows={1}
           style={{
-            flex: 1, background: '#F2F3F5', border: '1.5px solid #E0E1E6',
-            borderRadius: 22, padding: '10px 16px',
-            fontSize: 15, color: '#1A1C21', outline: 'none',
-            resize: 'none', overflow: 'hidden',
-            minHeight: 44, maxHeight: 100,
-            fontFamily: 'system-ui', transition: 'border-color 0.15s',
+            flex: 1, background: '#F2F3F5', border: '1.5px solid transparent',
+            borderRadius: 22, padding: '10px 16px', fontSize: 15, color: '#1A1C21',
+            outline: 'none', resize: 'none', overflow: 'hidden',
+            minHeight: 44, maxHeight: 100, fontFamily: 'system-ui',
+            transition: 'border-color 0.15s, background 0.15s',
           }}
-          onFocus={e => { e.target.style.borderColor = '#2AABEE' }}
-          onBlur={e => { e.target.style.borderColor = '#E0E1E6' }}
+          onFocus={e => { e.target.style.background = '#fff'; e.target.style.borderColor = '#2AABEE' }}
+          onBlur={e => { e.target.style.background = '#F2F3F5'; e.target.style.borderColor = 'transparent' }}
         />
-        <button
-          onClick={send}
-          disabled={!text.trim() || sending}
-          style={{
-            width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
-            background: text.trim() ? '#2AABEE' : '#E0E1E6',
-            border: 'none', cursor: text.trim() ? 'pointer' : 'default',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'background 0.15s', transform: 'translateY(-1px)',
-          }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-            stroke="white" strokeWidth="2.5" strokeLinecap="round">
+        <button onClick={() => send()} disabled={!text.trim() || sending} style={{
+          width: 44, height: 44, borderRadius: '50%', flexShrink: 0, border: 'none',
+          background: text.trim() ? '#2AABEE' : '#E0E1E6',
+          cursor: text.trim() ? 'pointer' : 'default',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          transition: 'background 0.15s, transform 0.1s',
+          transform: text.trim() ? 'scale(1)' : 'scale(0.9)',
+        }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
             <path d="m22 2-7 20-4-9-9-4 20-7z"/>
           </svg>
         </button>
