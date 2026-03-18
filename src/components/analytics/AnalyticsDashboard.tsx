@@ -191,7 +191,7 @@ export default function AnalyticsDashboard({
   }
 
   return (
-    <div style={{ padding: '0 16px 24px' }}>
+    <div style={{ padding: '16px 16px 24px' }}>
 
       {/* Переключатель периода */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, overflowX: 'auto', paddingBottom: 4 }}>

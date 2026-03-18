@@ -26,31 +26,31 @@ export default function ListingCard({ listing, index = 0 }: { listing: Listing; 
   }
 
   async function goChat(e: React.MouseEvent) {
-    // Не даём открыться /listing/[id] при клике на кнопку
     e.stopPropagation()
     if (chatLoading) return
-
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    if (user.id === listing.seller_id) { showToast('Это ваш товар'); return }
-
     setChatLoading(true)
-    const { data: ex } = await supabase.from('chats').select('id')
-      .eq('listing_id', listing.id)
-      .eq('buyer_id', user.id)
-      .eq('seller_id', listing.seller_id)
-      .single()
 
-    if (ex) { router.push(`/chat/${ex.id}`); return }
-
-    const { data: nc, error } = await supabase.from('chats')
-      .insert({ listing_id: listing.id, buyer_id: user.id, seller_id: listing.seller_id })
-      .select('id').single()
-
-    setChatLoading(false)
-    if (error) { showToast('Ошибка. Попробуй ещё раз'); return }
-    if (nc) router.push(`/chat/${nc.id}`)
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing_id: listing.id, seller_id: listing.seller_id }),
+      })
+      const data = await res.json()
+      if (res.status === 400 && data.error === 'Own listing') {
+        showToast('Это ваш товар')
+        return
+      }
+      if (!res.ok || !data.id) {
+        showToast('Ошибка создания чата')
+        return
+      }
+      router.push(`/chat/${data.id}`)
+    } catch {
+      showToast('Ошибка сети. Попробуй ещё раз')
+    } finally {
+      setChatLoading(false)
+    }
   }
 
   function toggleLike(e: React.MouseEvent) {
@@ -65,7 +65,7 @@ export default function ListingCard({ listing, index = 0 }: { listing: Listing; 
 
   return (
     <div
-      className="card-press anim-card"
+      className="card press-card anim-card"
       style={{ padding: 16, animationDelay: `${index * 45}ms`, position: 'relative', cursor: 'pointer' }}
       onClick={handleCardClick}
     >

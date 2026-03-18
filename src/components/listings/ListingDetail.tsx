@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import type { Listing } from '@/types'
 import Avatar from '@/components/ui/Avatar'
 import StarRating from '@/components/ui/StarRating'
@@ -48,21 +47,20 @@ export default function ListingDetail({ listing, priceHistory, similar, currentU
   async function goChat() {
     if (isOwner || chatLoading) return
     setChatLoading(true)
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: ex } = await supabase.from('chats').select('id')
-      .eq('listing_id', listing.id).eq('buyer_id', user.id).eq('seller_id', listing.seller_id).single()
-
-    if (ex) { router.push(`/chat/${ex.id}`); return }
-
-    const { data: nc } = await supabase.from('chats')
-      .insert({ listing_id: listing.id, buyer_id: user.id, seller_id: listing.seller_id })
-      .select('id').single()
-
-    setChatLoading(false)
-    if (nc) router.push(`/chat/${nc.id}`)
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing_id: listing.id, seller_id: listing.seller_id }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.id) return
+      router.push(`/chat/${data.id}`)
+    } catch {
+      // silent fail
+    } finally {
+      setChatLoading(false)
+    }
   }
 
   return (
