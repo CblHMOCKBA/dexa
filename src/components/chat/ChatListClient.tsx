@@ -39,7 +39,7 @@ type Props = {
 }
 
 export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
-  const { containerRef, pullDistance, isRefreshing, triggered } = usePullToRefresh()
+  const { pullDistance, isRefreshing, triggered } = usePullToRefresh()
   const [tab, setTab] = useState<'personal' | 'rooms'>('personal')
   const [search, setSearch] = useState('')
 
@@ -60,7 +60,7 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
   }, [rooms, search])
 
   return (
-    <div ref={containerRef} className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
+    <div className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
 
       {/* FIX: header фиксированной высоты — не прыгает при смене таба */}
       <PullIndicator pullDistance={pullDistance} isRefreshing={isRefreshing} triggered={triggered} />

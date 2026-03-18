@@ -35,7 +35,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   ])
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
+    <div className="pb-nav" style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
       <div className="screen-header">
         <BackButton href="/orders" />
         <div style={{ flex: 1 }}>
@@ -60,7 +60,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
       {/* Накладная — только для продавца после завершения */}
       {order.status === 'completed' && order.seller_id === user!.id && (
-        <div style={{ padding: '0 16px 12px' }}>
+        <div style={{ padding: '0 16px 16px' }}>
           <DocumentGenerator
             order={order}
             currentUserId={user!.id}
@@ -73,7 +73,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
       {/* Отзыв — только для покупателя */}
       {order.status === 'completed' && order.buyer_id === user!.id && (
-        <div style={{ padding: '0 16px 32px' }}>
+        <div style={{ padding: '0 16px 16px' }}>
           <LeaveReview
             order={order}
             currentUserId={user!.id}

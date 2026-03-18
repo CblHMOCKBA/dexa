@@ -3,19 +3,18 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 
-interface PullToRefreshOptions {
+interface Options {
   threshold?: number
   onRefresh?: () => Promise<void> | void
 }
 
-export interface PullToRefreshState {
+export interface PTRState {
   pullDistance: number
   isRefreshing: boolean
   triggered: boolean
-  containerRef: React.RefObject<HTMLDivElement>
 }
 
-export function usePullToRefresh(options: PullToRefreshOptions = {}): PullToRefreshState {
+export function usePullToRefresh(options: Options = {}): PTRState {
   const { threshold = 72, onRefresh } = options
   const router = useRouter()
 
@@ -23,20 +22,19 @@ export function usePullToRefresh(options: PullToRefreshOptions = {}): PullToRefr
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [triggered, setTriggered] = useState(false)
 
-  const startY = useRef(0)
-  const isPulling = useRef(false)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const startY   = useRef(0)
+  const pulling  = useRef(false)
+  const blocked  = useRef(false)
 
   const doRefresh = useCallback(async () => {
     setIsRefreshing(true)
     setTriggered(false)
     setPullDistance(0)
     try {
-      if (onRefresh) {
-        await onRefresh()
-      } else {
+      if (onRefresh) await onRefresh()
+      else {
         router.refresh()
-        await new Promise(r => setTimeout(r, 800))
+        await new Promise(r => setTimeout(r, 900))
       }
     } finally {
       setIsRefreshing(false)
@@ -44,28 +42,37 @@ export function usePullToRefresh(options: PullToRefreshOptions = {}): PullToRefr
   }, [onRefresh, router])
 
   useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-
+    // Слушаем window — работает для любого скролла страницы
     function onTouchStart(e: TouchEvent) {
-      if (el!.scrollTop > 0) return
+      if (window.scrollY > 0) return   // не в самом верху — не тянем
+      if (isRefreshing) return
       startY.current = e.touches[0].clientY
-      isPulling.current = true
+      pulling.current = true
+      blocked.current = false
     }
 
     function onTouchMove(e: TouchEvent) {
-      if (!isPulling.current || isRefreshing) return
+      if (!pulling.current || isRefreshing) return
       const dy = e.touches[0].clientY - startY.current
       if (dy <= 0) { setPullDistance(0); return }
-      const rubber = Math.min(dy * 0.45, threshold * 1.5)
+
+      // Rubber band
+      const rubber = Math.min(dy * 0.45, threshold * 1.6)
       setPullDistance(rubber)
       setTriggered(rubber >= threshold)
-      if (dy > 8) e.preventDefault()
+
+      // Блокируем нативный скролл вверх
+      if (dy > 6 && !blocked.current) {
+        blocked.current = true
+      }
+      if (blocked.current) e.preventDefault()
     }
 
     function onTouchEnd() {
-      if (!isPulling.current) return
-      isPulling.current = false
+      if (!pulling.current) return
+      pulling.current = false
+      blocked.current = false
+
       if (triggered && !isRefreshing) {
         doRefresh()
       } else {
@@ -74,15 +81,16 @@ export function usePullToRefresh(options: PullToRefreshOptions = {}): PullToRefr
       }
     }
 
-    el.addEventListener('touchstart', onTouchStart, { passive: true })
-    el.addEventListener('touchmove', onTouchMove, { passive: false })
-    el.addEventListener('touchend', onTouchEnd)
+    document.addEventListener('touchstart', onTouchStart, { passive: true })
+    document.addEventListener('touchmove',  onTouchMove,  { passive: false })
+    document.addEventListener('touchend',   onTouchEnd)
+
     return () => {
-      el.removeEventListener('touchstart', onTouchStart)
-      el.removeEventListener('touchmove', onTouchMove)
-      el.removeEventListener('touchend', onTouchEnd)
+      document.removeEventListener('touchstart', onTouchStart)
+      document.removeEventListener('touchmove',  onTouchMove)
+      document.removeEventListener('touchend',   onTouchEnd)
     }
   }, [isRefreshing, triggered, threshold, doRefresh])
 
-  return { containerRef, pullDistance, isRefreshing, triggered }
+  return { pullDistance, isRefreshing, triggered }
 }

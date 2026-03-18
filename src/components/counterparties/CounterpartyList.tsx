@@ -30,7 +30,7 @@ function BalancePill({ balance }: { balance: number }) {
 }
 
 export default function CounterpartyList({ counterparties }: { counterparties: Counterparty[] }) {
-  const { containerRef, pullDistance, isRefreshing, triggered } = usePullToRefresh()
+  const { pullDistance, isRefreshing, triggered } = usePullToRefresh()
   const [search, setSearch]       = useState('')
   const [typeFilter, setTypeFilter] = useState<'all' | 'supplier' | 'buyer' | 'both'>('all')
 
@@ -49,7 +49,7 @@ export default function CounterpartyList({ counterparties }: { counterparties: C
   const totalOwed    = counterparties.reduce((s, c) => s + Math.max(0, c.balance ?? 0), 0)
 
   return (
-    <div ref={containerRef} className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
+    <div className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
 
       {/* Header */}
       <PullIndicator pullDistance={pullDistance} isRefreshing={isRefreshing} triggered={triggered} />

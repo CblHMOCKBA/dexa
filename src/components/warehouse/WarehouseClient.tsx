@@ -71,7 +71,7 @@ export default function WarehouseClient({
   initialListings: Listing[]
   initialTemplates: ListingTemplate[]
 }) {
-  const { containerRef, pullDistance, isRefreshing, triggered } = usePullToRefresh()
+  const { pullDistance, isRefreshing, triggered } = usePullToRefresh()
   const router = useRouter()
 
   const [listings, setListings]   = useState<Listing[]>(initialListings)
@@ -247,7 +247,7 @@ export default function WarehouseClient({
   }
 
   return (
-    <div ref={containerRef} className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
+    <div className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
 
       {/* Header */}
       <PullIndicator pullDistance={pullDistance} isRefreshing={isRefreshing} triggered={triggered} />
