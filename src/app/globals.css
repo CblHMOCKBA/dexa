@@ -271,7 +271,7 @@ body {
   .text-price   { font-family: var(--font-mono); font-weight: 600; }
   .text-display { font-family: var(--font-unbounded); font-weight: 700; }
   .text-mono    { font-family: var(--font-mono); }
-  .pb-nav { padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
+  .pb-nav { padding-bottom: calc(70px + env(safe-area-inset-bottom, 0px)); }
   .pt-safe { padding-top: calc(var(--sat) + 12px); }
 }
 
