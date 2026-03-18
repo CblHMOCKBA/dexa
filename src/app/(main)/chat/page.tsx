@@ -8,7 +8,13 @@ export default async function ChatsPage() {
   const [{ data: chats }, { data: roomMembers }] = await Promise.all([
     supabase
       .from('chats')
-      .select('*, listing:listings(*), buyer:profiles!chats_buyer_id_fkey(*), seller:profiles!chats_seller_id_fkey(*)')
+      .select(`
+        *,
+        listing:listings(id, title, price, status),
+        buyer:profiles!chats_buyer_id_fkey(id, name, location),
+        seller:profiles!chats_seller_id_fkey(id, name, location),
+        last_message:messages(id, text, sender_id, created_at)
+      `)
       .or(`buyer_id.eq.${user!.id},seller_id.eq.${user!.id}`)
       .order('created_at', { ascending: false }),
     supabase

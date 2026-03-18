@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import type { Chat, Room } from '@/types'
 import Avatar from '@/components/ui/Avatar'
@@ -18,13 +18,15 @@ function SkeletonChat() {
   )
 }
 
-function ago(d: string) {
-  const m = Math.floor((Date.now() - new Date(d).getTime()) / 60000)
-  if (m < 1)  return 'сейчас'
-  if (m < 60) return `${m}м`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}ч`
-  return `${Math.floor(h / 24)}д`
+// Время последнего сообщения — Telegram-стиль
+function msgTime(d: string) {
+  const date = new Date(d)
+  const now  = new Date()
+  const diff = Math.floor((now.getTime() - date.getTime()) / 86400000)
+  if (diff === 0) return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  if (diff === 1) return 'Вчера'
+  if (diff < 7)  return date.toLocaleDateString('ru-RU', { weekday: 'short' })
+  return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
 }
 
 type Props = {
@@ -35,6 +37,23 @@ type Props = {
 
 export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
   const [tab, setTab] = useState<'personal' | 'rooms'>('personal')
+  const [search, setSearch] = useState('')
+
+  const filteredChats = useMemo(() => {
+    if (!search.trim()) return chats
+    const q = search.toLowerCase()
+    return chats.filter(c => {
+      const partner = c.buyer_id === currentUserId ? c.seller : c.buyer
+      return partner?.name?.toLowerCase().includes(q) ||
+             (c.listing as { title?: string })?.title?.toLowerCase().includes(q)
+    })
+  }, [chats, search, currentUserId])
+
+  const filteredRooms = useMemo(() => {
+    if (!search.trim()) return rooms
+    const q = search.toLowerCase()
+    return rooms.filter(r => r.name.toLowerCase().includes(q))
+  }, [rooms, search])
 
   return (
     <div className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
@@ -65,6 +84,37 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
               + Создать
             </button>
           </Link>
+        </div>
+
+        {/* Строка 1.5: поиск */}
+        <div style={{ position: 'relative', marginBottom: 10 }}>
+          <div style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9498AB" strokeWidth="2">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+          </div>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Поиск по чатам..."
+            style={{
+              width: '100%', height: 38, borderRadius: 12,
+              background: '#F2F3F5', border: '1.5px solid transparent',
+              paddingLeft: 36, paddingRight: 12, fontSize: 14, color: '#1A1C21',
+              outline: 'none', boxSizing: 'border-box', fontFamily: 'system-ui',
+              transition: 'border-color 0.15s, background 0.15s',
+            }}
+            onFocus={e => { e.target.style.background = '#fff'; e.target.style.borderColor = '#2AABEE' }}
+            onBlur={e => { e.target.style.background = '#F2F3F5'; e.target.style.borderColor = 'transparent' }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')} style={{
+              position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+              background: '#CDD0D8', border: 'none', borderRadius: '50%',
+              width: 18, height: 18, cursor: 'pointer', color: 'white', fontSize: 12,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>×</button>
+          )}
         </div>
 
         {/* Строка 2: табы */}
@@ -107,11 +157,22 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
             </div>
           ) : (
             <div className="stagger" style={{ background: '#fff' }}>
-              {chats.map(chat => {
-                const partner = chat.buyer_id === currentUserId ? chat.seller : chat.buyer
-                const pName   = partner?.name ?? 'Продавец'
+              {filteredChats.length === 0 && search ? (
+                <div style={{ textAlign: 'center', padding: '40px 24px', color: '#9498AB', fontSize: 14 }}>
+                  Ничего не найдено по «{search}»
+                </div>
+              ) : filteredChats.map(chat => {
+                const partner  = chat.buyer_id === currentUserId ? chat.seller : chat.buyer
+                const pName    = partner?.name ?? 'Продавец'
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const lastMsgs = (chat as any).last_message
+                const lastMsg  = Array.isArray(lastMsgs) ? lastMsgs[lastMsgs.length - 1] : lastMsgs
+                const timeStr  = lastMsg?.created_at ? msgTime(lastMsg.created_at) : msgTime(chat.created_at)
+                const preview  = lastMsg?.text
+                  ? (lastMsg.sender_id === currentUserId ? `Вы: ${lastMsg.text}` : lastMsg.text)
+                  : chat.listing ? `📦 ${(chat.listing as { title: string }).title}` : 'Новый чат'
                 return (
-                  <Link key={chat.id} href={`/chat/${chat.id}`} className='press-card'
+                  <Link key={chat.id} href={`/chat/${chat.id}`}
                     className="press-card" style={{ display: 'block', textDecoration: 'none' }}>
                     <div style={{
                       display: 'flex', alignItems: 'center', gap: 12,
@@ -119,22 +180,14 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
                     }}>
                       <Avatar name={pName} size="sm" />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                          <p style={{ fontWeight: 700, fontSize: 15, color: '#1A1C21' }}>{pName}</p>
-                          <span style={{ fontSize: 11, color: '#9498AB', flexShrink: 0 }}>
-                            {ago(chat.created_at)}
-                          </span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                          <p style={{ fontWeight: 700, fontSize: 15, color: '#1A1C21', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pName}</p>
+                          <span style={{ fontSize: 11, color: '#9498AB', flexShrink: 0, marginLeft: 8 }}>{timeStr}</span>
                         </div>
-                        {chat.listing && (
-                          <p style={{ fontSize: 13, color: '#9498AB', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            📦 {chat.listing.title}
-                          </p>
-                        )}
+                        <p style={{ fontSize: 13, color: '#9498AB', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {preview}
+                        </p>
                       </div>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                        stroke="#CDD0D8" strokeWidth="2.5">
-                        <path d="m9 18 6-6-6-6"/>
-                      </svg>
                     </div>
                   </Link>
                 )
@@ -170,7 +223,7 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
             </div>
           ) : (
             <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {rooms.map(room => (
+              {filteredRooms.map(room => (
                 <Link key={room.id} href={`/rooms/${room.id}`}
                   className="press-card" style={{ textDecoration: 'none' }}>
                   <div className="card-press" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>

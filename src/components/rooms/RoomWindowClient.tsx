@@ -7,6 +7,11 @@ import { createClient } from '@/lib/supabase/client'
 import type { Room, RoomMessage, RoomMember, Listing } from '@/types'
 import Avatar from '@/components/ui/Avatar'
 
+type OptimisticRoomMessage = RoomMessage & {
+  status?: 'sending' | 'sent' | 'error'
+  temp?: boolean
+}
+
 type Props = {
   room: Room
   initialMessages: RoomMessage[]
@@ -15,16 +20,31 @@ type Props = {
   myRole: 'owner' | 'admin' | 'member'
 }
 
+function formatTime(d: string) {
+  return new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatDateSep(d: string) {
+  const date = new Date(d)
+  const diff = Math.floor((Date.now() - date.getTime()) / 86400000)
+  if (diff === 0) return 'Сегодня'
+  if (diff === 1) return 'Вчера'
+  return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+}
+
+function isSameDay(a: string, b: string) {
+  return new Date(a).toDateString() === new Date(b).toDateString()
+}
+
 export default function RoomWindowClient({ room, initialMessages, members: initialMembers, currentUserId, myRole }: Props) {
   const router = useRouter()
-  const [msgs, setMsgs]               = useState<RoomMessage[]>(initialMessages)
-  const [members, setMembers]          = useState<RoomMember[]>(initialMembers)
-  const [text, setText]                = useState('')
-  const [sending, setSending]          = useState(false)
-  const [panel, setPanel]              = useState<'none' | 'members' | 'invite' | 'share'>('none')
-  const [inviteCode, setInviteCode]    = useState<string | null>(null)
-  const [copyDone, setCopyDone]        = useState(false)
-  const [myListings, setMyListings]    = useState<Listing[]>([])
+  const [msgs, setMsgs]             = useState<OptimisticRoomMessage[]>(initialMessages)
+  const [members, setMembers]        = useState<RoomMember[]>(initialMembers)
+  const [text, setText]              = useState('')
+  const [panel, setPanel]            = useState<'none' | 'members' | 'invite' | 'share'>('none')
+  const [inviteCode, setInviteCode]  = useState<string | null>(null)
+  const [copyDone, setCopyDone]      = useState(false)
+  const [myListings, setMyListings]  = useState<Listing[]>([])
   const [loadingListings, setLoadingListings] = useState(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -33,12 +53,9 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
 
   const isAdmin = myRole === 'owner' || myRole === 'admin'
 
-  // Скролл вниз
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: msgs.length <= initialMessages.length ? 'instant' : 'smooth' })
-  }, [msgs])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'instant' }) }, [])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length])
 
-  // Realtime
   useEffect(() => {
     const supabase = createClient()
     const ch = supabase
@@ -50,24 +67,30 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
         const m = payload.new as RoomMessage
         if (seenIds.current.has(m.id)) return
         seenIds.current.add(m.id)
-        setMsgs(prev => [...prev, m])
+        setMsgs(prev => {
+          const tempIdx = prev.findIndex(x => x.temp && x.sender_id === m.sender_id && x.text === m.text)
+          if (tempIdx >= 0) {
+            const updated = [...prev]
+            updated[tempIdx] = { ...m, status: 'sent' }
+            return updated
+          }
+          return [...prev, { ...m, status: 'sent' }]
+        })
       })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [room.id])
 
-  // Загрузка участников при открытии панели
   useEffect(() => {
     if (panel !== 'members') return
     const supabase = createClient()
-    supabase.from('room_members').select('*, profile:profiles(*)').eq('room_id', room.id)
+    supabase.from('room_members').select('*, profile:profiles(*)')
+      .eq('room_id', room.id)
       .then(({ data }) => { if (data) setMembers(data as RoomMember[]) })
   }, [panel])
 
-  // Загрузка товаров для шеринга
   useEffect(() => {
-    if (panel !== 'share') return
-    if (myListings.length > 0) return
+    if (panel !== 'share' || myListings.length > 0) return
     setLoadingListings(true)
     const supabase = createClient()
     supabase.from('listings').select('id,title,price,brand,status')
@@ -83,19 +106,43 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
 
   async function send(customText?: string) {
     const t = (customText ?? text).trim()
-    if (!t || sending) return
-    setSending(true)
+    if (!t) return
     if (!customText) { setText(''); if (inputRef.current) inputRef.current.style.height = 'auto' }
-    const supabase = createClient()
-    const { data } = await supabase.from('room_messages')
-      .insert({ room_id: room.id, sender_id: currentUserId, text: t })
-      .select('id').single()
-    if (data?.id) seenIds.current.add(data.id)
-    setSending(false)
+
+    const tempId = `temp-${Date.now()}-${Math.random()}`
+    const tempMsg: OptimisticRoomMessage = {
+      id: tempId, room_id: room.id, sender_id: currentUserId,
+      text: t, reply_to: null, is_edited: false,
+      created_at: new Date().toISOString(),
+      status: 'sending', temp: true,
+    }
+    seenIds.current.add(tempId)
+    setMsgs(prev => [...prev, tempMsg])
+
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase.from('room_messages')
+        .insert({ room_id: room.id, sender_id: currentUserId, text: t })
+        .select('id').single()
+      if (error) throw error
+      if (data?.id) seenIds.current.add(data.id)
+      setMsgs(prev => prev.map(m =>
+        m.id === tempId ? { ...m, id: data?.id ?? tempId, status: 'sent', temp: false } : m
+      ))
+    } catch {
+      setMsgs(prev => prev.map(m =>
+        m.id === tempId ? { ...m, status: 'error' } : m
+      ))
+    }
+  }
+
+  async function retrySend(msg: OptimisticRoomMessage) {
+    setMsgs(prev => prev.filter(m => m.id !== msg.id))
+    await send(msg.text)
   }
 
   async function shareListingCard(listing: Listing) {
-    const t = `📦 *${listing.title}*\n💰 ${listing.price.toLocaleString('ru-RU')} ₽${listing.brand ? `\n🏷 ${listing.brand}` : ''}`
+    const t = `📦 ${listing.title}\n💰 ${listing.price.toLocaleString('ru-RU')} ₽${listing.brand ? `\n🏷 ${listing.brand}` : ''}`
     await send(t)
     setPanel('none')
   }
@@ -110,8 +157,7 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
 
   async function copyInvite() {
     if (!inviteCode) return
-    const url = `${window.location.origin}/join/${inviteCode}`
-    await navigator.clipboard.writeText(url)
+    await navigator.clipboard.writeText(`${window.location.origin}/join/${inviteCode}`)
     setCopyDone(true); setTimeout(() => setCopyDone(false), 2200)
   }
 
@@ -122,25 +168,28 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
     setMembers(prev => prev.filter(m => m.user_id !== userId))
   }
 
-  function senderName(senderId: string) {
-    const m = members.find(m => m.user_id === senderId)
+  function senderName(id: string) {
+    const m = members.find(m => m.user_id === id)
     return m?.profile?.name ?? 'Участник'
   }
 
   function isSameGroup(i: number) {
     if (i === 0) return false
-    return msgs[i].sender_id === msgs[i - 1].sender_id
+    return msgs[i].sender_id === msgs[i - 1].sender_id &&
+           isSameDay(msgs[i].created_at, msgs[i - 1].created_at)
   }
 
-  function togglePanel(p: typeof panel) {
-    setPanel(prev => prev === p ? 'none' : p)
+  function membersLabel() {
+    const n = members.length
+    if (n === 1) return '1 участник'
+    if (n < 5)  return `${n} участника`
+    return `${n} участников`
   }
 
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      height: '100dvh', background: '#F2F3F5',
-      overflow: 'hidden', // ← изолируем overflow
+      height: '100dvh', background: '#F2F3F5', overflow: 'hidden',
     }}>
 
       {/* ── HEADER ── */}
@@ -152,7 +201,7 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
         backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
         borderBottom: '1px solid #E8E9ED',
       }}>
-        <Link href="/chat" style={{ display: 'flex', alignItems: 'center', color: '#1E6FEB', textDecoration: 'none' }}>
+        <Link href="/chat" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1E6FEB" strokeWidth="2.5" strokeLinecap="round">
             <path d="m15 18-6-6 6-6"/>
           </svg>
@@ -167,30 +216,24 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
         </div>
 
         <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
-          onClick={() => togglePanel('members')}>
+          onClick={() => setPanel(p => p === 'members' ? 'none' : 'members')}>
           <p style={{ fontWeight: 700, fontSize: 16, color: '#1A1C21', lineHeight: 1.2 }}>{room.name}</p>
-          <p style={{ fontSize: 12, color: '#9498AB' }}>
-            {members.length} {members.length === 1 ? 'участник' : members.length < 5 ? 'участника' : 'участников'}
-          </p>
+          <p style={{ fontSize: 12, color: '#9498AB' }}>{membersLabel()}</p>
         </div>
 
         <div style={{ display: 'flex', gap: 6 }}>
-          {/* Поделиться товаром */}
-          <button onClick={() => togglePanel('share')} style={{
+          <button onClick={() => setPanel(p => p === 'share' ? 'none' : 'share')} style={{
             width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
             background: panel === 'share' ? '#EBF2FF' : '#F2F3F5',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={panel === 'share' ? '#1E6FEB' : '#9498AB'} strokeWidth="2">
               <rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/>
-              <rect x="3" y="13" width="8" height="8" rx="1"/>
-              <path d="M13 17h8M17 13v8"/>
+              <rect x="3" y="13" width="8" height="8" rx="1"/><path d="M13 17h8M17 13v8"/>
             </svg>
           </button>
-
-          {/* Invite — только для admin */}
           {isAdmin && (
-            <button onClick={() => togglePanel('invite')} style={{
+            <button onClick={() => setPanel(p => p === 'invite' ? 'none' : 'invite')} style={{
               width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
               background: panel === 'invite' ? '#EBF2FF' : '#F2F3F5',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -210,9 +253,10 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
       {panel === 'members' && (
         <div style={{
           flexShrink: 0, background: 'white', borderBottom: '1px solid #E8E9ED',
-          maxHeight: 240, overflowY: 'auto', animation: 'slide-up 0.2s var(--spring-smooth) both',
+          maxHeight: 240, overflowY: 'auto',
+          animation: 'slide-up 0.2s var(--spring-smooth) both',
         }}>
-          <div style={{ padding: '10px 16px 4px', position: 'sticky', top: 0, background: 'white' }}>
+          <div style={{ padding: '10px 16px 4px', position: 'sticky', top: 0, background: 'white', borderBottom: '1px solid #F2F3F5' }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Участники · {members.length}
             </p>
@@ -220,8 +264,7 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
           {members.map(m => (
             <div key={m.user_id} style={{
               display: 'flex', alignItems: 'center', gap: 10,
-              padding: '8px 16px',
-              borderBottom: '1px solid #F2F3F5',
+              padding: '8px 16px', borderBottom: '1px solid #F2F3F5',
             }}>
               <Avatar name={m.profile?.name ?? '?'} size="xs" />
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -236,7 +279,7 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
                 background: m.role === 'owner' ? '#FFF8E0' : m.role === 'admin' ? '#EBF2FF' : '#F2F3F5',
                 color: m.role === 'owner' ? '#7A5E00' : m.role === 'admin' ? '#1249A8' : '#9498AB',
               }}>
-                {m.role === 'owner' ? 'owner' : m.role === 'admin' ? 'admin' : 'member'}
+                {m.role}
               </span>
               {isAdmin && m.user_id !== currentUserId && m.role !== 'owner' && (
                 <button onClick={() => kickMember(m.user_id)} style={{
@@ -250,41 +293,39 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
         </div>
       )}
 
-      {/* ── ПАНЕЛЬ: ПОДЕЛИТЬСЯ ТОВАРОМ ── */}
+      {/* ── ПАНЕЛЬ: ПОДЕЛИТЬСЯ ── */}
       {panel === 'share' && (
         <div style={{
           flexShrink: 0, background: 'white', borderBottom: '1px solid #E8E9ED',
-          padding: '12px 16px', animation: 'slide-up 0.2s var(--spring-smooth) both',
-          maxHeight: 260, overflowY: 'auto',
+          padding: '12px 16px', maxHeight: 260, overflowY: 'auto',
+          animation: 'slide-up 0.2s var(--spring-smooth) both',
         }}>
           <p style={{ fontSize: 11, fontWeight: 700, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
-            Поделиться товаром в комнате
+            Поделиться товаром
           </p>
           {loadingListings ? (
-            <p style={{ fontSize: 13, color: '#9498AB', textAlign: 'center', padding: '12px 0' }}>Загрузка...</p>
+            <p style={{ fontSize: 13, color: '#9498AB', textAlign: 'center', padding: '12px 0' }}>...</p>
           ) : myListings.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {myListings.map(l => (
-                <button key={l.id} onClick={() => shareListingCard(l)} style={{
-                  width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-                  background: '#F8F9FB', borderRadius: 12, padding: '10px 12px',
-                  border: '1.5px solid #E0E1E6', cursor: 'pointer', textAlign: 'left',
-                }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21' }}>{l.title}</p>
-                    <p style={{ fontSize: 12, color: '#00B173', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
-                      {l.price.toLocaleString('ru-RU')} ₽
-                    </p>
-                  </div>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9498AB" strokeWidth="2">
-                    <path d="m22 2-7 20-4-9-9-4 20-7z"/>
-                  </svg>
-                </button>
-              ))}
-            </div>
+            myListings.map(l => (
+              <button key={l.id} onClick={() => shareListingCard(l)} style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                background: '#F8F9FB', borderRadius: 12, padding: '10px 12px',
+                border: '1.5px solid #E0E1E6', cursor: 'pointer', marginBottom: 6, textAlign: 'left',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21' }}>{l.title}</p>
+                  <p style={{ fontSize: 12, color: '#00B173', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                    {l.price.toLocaleString('ru-RU')} ₽
+                  </p>
+                </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9498AB" strokeWidth="2">
+                  <path d="m22 2-7 20-4-9-9-4 20-7z"/>
+                </svg>
+              </button>
+            ))
           ) : (
             <p style={{ fontSize: 13, color: '#9498AB', textAlign: 'center', padding: '12px 0' }}>
-              Нет активных товаров на складе
+              Нет активных товаров
             </p>
           )}
         </div>
@@ -297,16 +338,14 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
           padding: '12px 16px', animation: 'slide-up 0.2s var(--spring-smooth) both',
         }}>
           <p style={{ fontSize: 11, fontWeight: 700, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
-            Пригласить участников
+            Пригласить
           </p>
           {!inviteCode ? (
             <button onClick={generateInvite} style={{
               width: '100%', padding: '11px', borderRadius: 12,
               background: '#EBF2FF', color: '#1249A8', border: 'none',
               fontSize: 14, fontWeight: 700, cursor: 'pointer',
-            }}>
-              Создать invite-ссылку
-            </button>
+            }}>Создать invite-ссылку</button>
           ) : (
             <div style={{ display: 'flex', gap: 8 }}>
               <div style={{ flex: 1, background: '#F2F3F5', borderRadius: 10, padding: '10px 12px', minWidth: 0 }}>
@@ -319,8 +358,7 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
                 padding: '0 16px', borderRadius: 10, border: 'none',
                 background: copyDone ? '#E6F9F3' : '#1E6FEB',
                 color: copyDone ? '#006644' : '#fff',
-                fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
-                transition: 'all 0.2s',
+                fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, transition: 'all 0.2s',
               }}>
                 {copyDone ? '✓' : 'Копировать'}
               </button>
@@ -332,7 +370,7 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
         </div>
       )}
 
-      {/* ── СООБЩЕНИЯ — только этот блок скроллится ── */}
+      {/* ── СООБЩЕНИЯ ── */}
       <div style={{
         flex: 1, overflowY: 'auto', padding: '10px 12px',
         display: 'flex', flexDirection: 'column', gap: 2,
@@ -349,49 +387,74 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
         )}
 
         {msgs.map((m, i) => {
-          const own   = m.sender_id === currentUserId
-          const group = isSameGroup(i)
-          const name  = senderName(m.sender_id)
-          const showAvatar = !own && (i === msgs.length - 1 || msgs[i + 1]?.sender_id !== m.sender_id)
+          const own     = m.sender_id === currentUserId
+          const group   = isSameGroup(i)
+          const showSep = i === 0 || !isSameDay(m.created_at, msgs[i - 1].created_at)
+          const name    = senderName(m.sender_id)
+          const showAvatar = !own && (!msgs[i + 1] || msgs[i + 1].sender_id !== m.sender_id)
 
           return (
-            <div key={m.id} style={{
-              display: 'flex',
-              justifyContent: own ? 'flex-end' : 'flex-start',
-              alignItems: 'flex-end', gap: 6,
-              marginTop: group ? 1 : 8,
-            }}>
-              {!own && (
-                <div style={{ width: 28, flexShrink: 0 }}>
-                  {showAvatar ? <Avatar name={name} size="xs" /> : null}
+            <div key={m.id}>
+              {showSep && (
+                <div style={{ display: 'flex', justifyContent: 'center', margin: '12px 0 8px' }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 600, color: '#9498AB',
+                    background: 'rgba(255,255,255,0.8)', backdropFilter: 'blur(4px)',
+                    padding: '4px 12px', borderRadius: 20,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+                  }}>
+                    {formatDateSep(m.created_at)}
+                  </span>
                 </div>
               )}
 
-              <div style={{ maxWidth: '78%' }}>
-                {!own && !group && (
-                  <p style={{ fontSize: 11, fontWeight: 700, color: '#1E6FEB', marginBottom: 2, paddingLeft: 4 }}>
-                    {name}
-                  </p>
+              <div style={{
+                display: 'flex',
+                justifyContent: own ? 'flex-end' : 'flex-start',
+                alignItems: 'flex-end', gap: 6,
+                marginTop: group && !showSep ? 1 : 6,
+              }}>
+                {!own && (
+                  <div style={{ width: 28, flexShrink: 0 }}>
+                    {showAvatar && <Avatar name={name} size="xs" />}
+                  </div>
                 )}
-                <div style={{
-                  padding: '8px 12px',
-                  borderRadius: own
-                    ? (group ? '18px 4px 4px 18px' : '18px 18px 4px 18px')
-                    : (group ? '4px 18px 18px 4px' : '4px 18px 18px 18px'),
-                  background: own ? '#2AABEE' : '#fff',
-                  color: own ? '#fff' : '#1A1C21',
-                  fontSize: 15, lineHeight: 1.45,
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                }}>
-                  {m.text}
-                  <span style={{
-                    fontSize: 10, opacity: 0.65, marginLeft: 8, float: 'right',
-                    marginTop: 2, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap',
+
+                <div style={{ maxWidth: '78%' }}>
+                  {!own && !group && (
+                    <p style={{ fontSize: 11, fontWeight: 700, color: '#1E6FEB', marginBottom: 2, paddingLeft: 4 }}>
+                      {name}
+                    </p>
+                  )}
+                  <div style={{
+                    padding: '8px 12px',
+                    borderRadius: own
+                      ? (group && !showSep ? '18px 4px 4px 18px' : '18px 18px 4px 18px')
+                      : (group && !showSep ? '4px 18px 18px 4px' : '4px 18px 18px 18px'),
+                    background: m.status === 'error' ? '#FFEBEA' : own ? '#2AABEE' : '#fff',
+                    color: m.status === 'error' ? '#A8170F' : own ? '#fff' : '#1A1C21',
+                    fontSize: 15, lineHeight: 1.45,
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                    opacity: m.status === 'sending' ? 0.7 : 1,
                   }}>
-                    {new Date(m.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                    {own && ' ✓'}
-                  </span>
+                    {m.text}
+                    <span style={{
+                      fontSize: 10, marginLeft: 8, float: 'right',
+                      marginTop: 2, whiteSpace: 'nowrap', opacity: 0.65,
+                      fontFamily: 'var(--font-mono)',
+                    }}>
+                      {formatTime(m.created_at)}
+                      {own && ` ${m.status === 'sending' ? '⏳' : m.status === 'error' ? '!' : '✓'}`}
+                    </span>
+                  </div>
+                  {m.status === 'error' && (
+                    <button onClick={() => retrySend(m)} style={{
+                      display: 'block', marginTop: 4, marginLeft: 'auto',
+                      fontSize: 11, color: '#E8251F', fontWeight: 700,
+                      background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0',
+                    }}>↻ Повторить</button>
+                  )}
                 </div>
               </div>
             </div>
@@ -414,7 +477,7 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
           value={text}
           onChange={e => { setText(e.target.value); resize(e.target) }}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-          placeholder={`Сообщение в ${room.name}...`}
+          placeholder={`Сообщение...`}
           rows={1}
           style={{
             flex: 1, background: '#F2F3F5', border: '1.5px solid transparent',
@@ -426,7 +489,7 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
           onFocus={e => { e.target.style.background = '#fff'; e.target.style.borderColor = '#2AABEE' }}
           onBlur={e => { e.target.style.background = '#F2F3F5'; e.target.style.borderColor = 'transparent' }}
         />
-        <button onClick={() => send()} disabled={!text.trim() || sending} style={{
+        <button onClick={() => send()} disabled={!text.trim()} style={{
           width: 44, height: 44, borderRadius: '50%', flexShrink: 0, border: 'none',
           background: text.trim() ? '#2AABEE' : '#E0E1E6',
           cursor: text.trim() ? 'pointer' : 'default',
