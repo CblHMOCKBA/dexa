@@ -20,8 +20,9 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
   const animRef    = useRef<number>(0)
   const streamRef  = useRef<MediaStream | null>(null)
   const scannedRef = useRef(false)
+  const readerRef  = useRef<{ reset: () => void } | null>(null)
 
-  const [status, setStatus]     = useState<'loading' | 'scanning' | 'error' | 'unsupported'>('loading')
+  const [status, setStatus]     = useState<'loading' | 'scanning' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
   const [torchOn, setTorchOn]   = useState(false)
 
@@ -31,7 +32,7 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
     if ('vibrate' in navigator) navigator.vibrate(120)
 
     let type: ScanResult['type'] = 'upc'
-    if (format.includes('qr') || format.includes('QR') || format.includes('data_matrix')) {
+    if (format.toLowerCase().includes('qr') || format.toLowerCase().includes('data_matrix')) {
       type = mode === 'serial' ? 'serial' : 'qr'
     } else if (mode === 'serial') {
       type = 'serial'
@@ -43,10 +44,14 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
     let stopped = false
 
     async function start() {
-      // Запрашиваем камеру
+      // 1. Запускаем камеру
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          }
         })
         if (stopped) { stream.getTracks().forEach(t => t.stop()); return }
         streamRef.current = stream
@@ -57,19 +62,53 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
         setStatus('scanning')
       } catch {
         setStatus('error')
-        setErrorMsg('Нет доступа к камере. Разреши доступ в настройках браузера.')
+        setErrorMsg('Нет доступа к камере. Разреши доступ в настройках.')
         return
       }
 
-      // Используем нативный BarcodeDetector (работает в Chrome и Safari без npm)
+      // 2. Пробуем @zxing — работает на iPhone/Android/Desktop
+      try {
+        const [{ BrowserMultiFormatReader }, zxingLib] = await Promise.all([
+          import('@zxing/browser'),
+          import('@zxing/library'),
+        ])
+
+        const { DecodeHintType, BarcodeFormat } = zxingLib
+
+        const hints = new Map()
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.UPC_A,
+          BarcodeFormat.UPC_E,
+          BarcodeFormat.CODE_128,
+          BarcodeFormat.CODE_39,
+          BarcodeFormat.QR_CODE,
+          BarcodeFormat.DATA_MATRIX,
+        ])
+        hints.set(DecodeHintType.TRY_HARDER, true)
+
+        const reader = new BrowserMultiFormatReader(hints)
+        readerRef.current = reader as unknown as { reset: () => void }
+
+        if (!videoRef.current || stopped) return
+
+        reader.decodeFromVideoElement(videoRef.current, (result, err) => {
+          if (stopped || scannedRef.current) return
+          if (result) {
+            handleResult(result.getText(), result.getBarcodeFormat().toString())
+          }
+        })
+        return // @zxing запущен — выходим
+      } catch (e) {
+        console.warn('@zxing failed, trying BarcodeDetector', e)
+      }
+
+      // 3. Fallback: нативный BarcodeDetector (Chrome Android)
       if ('BarcodeDetector' in window) {
-        type BarcodeDetectorType = {
-          detect: (v: HTMLVideoElement) => Promise<Array<{ rawValue: string; format: string }>>
-        }
-        const detector = new (window as unknown as {
-          BarcodeDetector: new (o: object) => BarcodeDetectorType
-        }).BarcodeDetector({
-          formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','qr_code','data_matrix'],
+        type BDType = { detect: (v: HTMLVideoElement) => Promise<Array<{ rawValue: string; format: string }>> }
+        const detector = new (window as unknown as { BarcodeDetector: new (o: object) => BDType }).BarcodeDetector({
+          formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'qr_code'],
         })
 
         const scan = async () => {
@@ -87,17 +126,21 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
           animRef.current = requestAnimationFrame(scan)
         }
         animRef.current = requestAnimationFrame(scan)
-      } else {
-        // Fallback — только ручной ввод (без @zxing чтобы не было ошибок сборки)
-        setStatus('unsupported')
+        return
       }
+
+      // 4. Ничего не работает — только ручной ввод
+      // Камера всё равно показывается, просто без авто-распознавания
+      console.warn('No barcode scanner available, manual input only')
     }
 
     start()
+
     return () => {
       stopped = true
       cancelAnimationFrame(animRef.current)
       streamRef.current?.getTracks().forEach(t => t.stop())
+      try { readerRef.current?.reset() } catch {}
     }
   }, [handleResult])
 
@@ -111,7 +154,7 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
   }
 
   const hintText = hint ?? (mode === 'serial'
-    ? 'Наведи на серийный номер или QR на коробке'
+    ? 'Наведи на серийный номер или QR'
     : 'Наведи на штрихкод товара')
 
   return (
@@ -143,7 +186,6 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
           background: torchOn ? '#F0B90B' : 'rgba(255,255,255,0.15)',
           border: 'none', cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'background 0.2s',
         }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={torchOn ? '#000' : 'white'} strokeWidth="2">
             <path d="M8 2h8l4 6-8 14L4 8z"/>
@@ -192,19 +234,15 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
           </div>
         )}
 
-        {/* Ошибка / не поддерживается */}
-        {(status === 'error' || status === 'unsupported') && (
+        {/* Ошибка */}
+        {status === 'error' && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 }}>
             <div style={{ width: 72, height: 72, borderRadius: 24, background: '#FFEBEA', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>
-              {status === 'unsupported' ? '📱' : '📷'}
+              📷
             </div>
-            <p style={{ color: '#fff', fontWeight: 700, fontSize: 17, textAlign: 'center' }}>
-              {status === 'unsupported' ? 'Сканер недоступен' : 'Нет доступа к камере'}
-            </p>
+            <p style={{ color: '#fff', fontWeight: 700, fontSize: 17, textAlign: 'center' }}>Нет доступа к камере</p>
             <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 14, textAlign: 'center', lineHeight: 1.6 }}>
-              {status === 'unsupported'
-                ? 'Введи штрихкод вручную в поле ниже'
-                : errorMsg}
+              {errorMsg}
             </p>
           </div>
         )}
@@ -256,7 +294,6 @@ function ManualInput({ mode, onScan }: { mode: 'upc' | 'serial' | 'any'; onScan:
         background: value.trim() ? '#1E6FEB' : 'rgba(255,255,255,0.1)',
         border: 'none', cursor: value.trim() ? 'pointer' : 'default',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        transition: 'background 0.15s',
       }}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
           <polyline points="9 18 15 12 9 6"/>
