@@ -225,20 +225,44 @@ body {
   .back-btn:active { background: var(--bg-active); transform: scale(0.9); }
 
   .bottom-nav {
-    position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
-    background: rgba(255,255,255,0.95);
-    border-top: 1px solid var(--border);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    position: fixed;
+    bottom: calc(12px + var(--sab));
+    left: 50%; transform: translateX(-50%);
+    z-index: 50;
+    /* Telegram-style floating pill */
+    background: rgba(255,255,255,0.82);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-radius: 9999px;
+    border: 1px solid rgba(255,255,255,0.6);
+    box-shadow:
+      0 4px 24px rgba(0,0,0,0.10),
+      0 1px 4px rgba(0,0,0,0.06),
+      inset 0 1px 0 rgba(255,255,255,0.8);
+    padding: 6px 8px;
+    gap: 0;
+    /* Ширина подстраивается под контент */
+    width: auto;
+    max-width: calc(100vw - 32px);
+    /* Не растягиваем на весь экран */
+    display: inline-flex;
   }
 
   .nav-item {
-    flex: 1; display: flex; flex-direction: column;
-    align-items: center; gap: 3px; padding-top: 10px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 2px;
+    padding: 6px 16px;
+    border-radius: 9999px;
     cursor: pointer;
-    transition: transform 0.15s var(--spring-bounce), opacity 0.1s;
+    transition: background 0.15s, transform 0.15s var(--spring-bounce), opacity 0.1s;
+    min-width: 56px;
+    position: relative;
   }
-  .nav-item:active { transform: scale(0.85); opacity: 0.7; }
+  .nav-item.active {
+    background: rgba(30, 111, 235, 0.10);
+  }
+  .nav-item:active { transform: scale(0.88); opacity: 0.75; }
 
   /* FIX: page-header — фиксированная высота чтобы не прыгал */
   .page-header {
@@ -285,7 +309,7 @@ body {
   .text-price   { font-family: var(--font-mono); font-weight: 600; }
   .text-display { font-family: var(--font-unbounded); font-weight: 700; }
   .text-mono    { font-family: var(--font-mono); }
-  .pb-nav { padding-bottom: calc(68px + var(--sab)); }
+  .pb-nav { padding-bottom: calc(90px + var(--sab)); }
   .pt-safe { padding-top: calc(var(--sat) + 12px); }
 }
 

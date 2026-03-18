@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Room, RoomMessage, RoomMember, Listing } from '@/types'
 import Avatar from '@/components/ui/Avatar'
+import ListingCardMessage, { encodeListingCard, decodeListingCard, type ListingCardData } from '@/components/chat/ListingCardMessage'
 
 type OptimisticRoomMessage = RoomMessage & {
   status?: 'sending' | 'sent' | 'error'
@@ -46,6 +47,9 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
   const [copyDone, setCopyDone]      = useState(false)
   const [myListings, setMyListings]  = useState<Listing[]>([])
   const [loadingListings, setLoadingListings] = useState(false)
+  const [showMenu, setShowMenu]         = useState(false)
+  const [menuAction, setMenuAction]     = useState<'none'|'leave'|'delete'|'clear'>('none')
+  const [menuLoading, setMenuLoading]   = useState(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef  = useRef<HTMLTextAreaElement>(null)
@@ -99,6 +103,50 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
       .then(({ data }) => { setMyListings((data as Listing[]) ?? []); setLoadingListings(false) })
   }, [panel])
 
+  async function leaveRoom() {
+    setMenuLoading(true)
+    const supabase = createClient()
+    await supabase.from('room_members').delete().eq('room_id', room.id).eq('user_id', currentUserId)
+    router.push('/chat')
+  }
+
+  async function deleteRoom() {
+    if (myRole !== 'owner') return
+    setMenuLoading(true)
+    const supabase = createClient()
+    await supabase.from('room_messages').delete().eq('room_id', room.id)
+    await supabase.from('room_members').delete().eq('room_id', room.id)
+    await supabase.from('rooms').delete().eq('id', room.id)
+    router.push('/chat')
+  }
+
+  async function clearRoomHistory() {
+    if (!isAdmin) return
+    setMenuLoading(true)
+    const supabase = createClient()
+    await supabase.from('room_messages').delete().eq('room_id', room.id)
+    setMsgs([])
+    setMenuLoading(false)
+    setMenuAction('none')
+    setShowMenu(false)
+  }
+
+  function exportRoomHistory() {
+    const lines = msgs.map(m => {
+      const name = senderName(m.sender_id)
+      const time = new Date(m.created_at).toLocaleString('ru-RU')
+      return `[${time}] ${name}: ${m.text}`
+    })
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href = url
+    a.download = `dexa-room-${room.name}-${new Date().toISOString().slice(0,10)}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+    setShowMenu(false)
+  }
+
   function resize(el: HTMLTextAreaElement) {
     el.style.height = 'auto'
     el.style.height = Math.min(el.scrollHeight, 100) + 'px'
@@ -142,8 +190,18 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
   }
 
   async function shareListingCard(listing: Listing) {
-    const t = `📦 ${listing.title}\n💰 ${listing.price.toLocaleString('ru-RU')} ₽${listing.brand ? `\n🏷 ${listing.brand}` : ''}`
-    await send(t)
+    const cardData: ListingCardData = {
+      id:          listing.id,
+      title:       listing.title,
+      price:       listing.price,
+      brand:       listing.brand ?? null,
+      model:       (listing as { model?: string }).model ?? null,
+      condition:   listing.condition,
+      seller_id:   listing.seller_id,
+      seller_name: (listing.seller as { name?: string })?.name ?? 'Продавец',
+      status:      listing.status as 'active' | 'reserved' | 'sold',
+    }
+    await send(encodeListingCard(cardData))
     setPanel('none')
   }
 
@@ -189,12 +247,15 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      height: '100dvh', background: '#F2F3F5', overflow: 'hidden',
+      height: '100dvh', minHeight: '-webkit-fill-available',
+      background: '#F2F3F5', overflow: 'hidden',
+      position: 'fixed', inset: 0,
     }}>
 
       {/* ── HEADER ── */}
       <div style={{
-        flexShrink: 0, zIndex: 10,
+        flexShrink: 0, zIndex: 20,
+        position: 'sticky', top: 0,
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '0 12px 10px', paddingTop: 'calc(10px + var(--sat))',
         background: 'rgba(255,255,255,0.97)',
@@ -246,8 +307,97 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
               </svg>
             </button>
           )}
+
+          {/* ⋮ Меню */}
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setShowMenu(v => !v)} style={{
+              width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer',
+              background: showMenu ? '#F2F3F5' : 'transparent',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="5"  r="1.5" fill="#9498AB"/>
+                <circle cx="12" cy="12" r="1.5" fill="#9498AB"/>
+                <circle cx="12" cy="19" r="1.5" fill="#9498AB"/>
+              </svg>
+            </button>
+
+            {showMenu && (
+              <div style={{
+                position: 'absolute', top: 42, right: 0, zIndex: 50,
+                background: 'white', borderRadius: 16,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.14)',
+                minWidth: 220, overflow: 'hidden',
+                animation: 'pop-in 0.18s var(--spring-bounce) both',
+              }}>
+                {[
+                  { icon: '💬', label: 'Поделиться товаром', action: () => { setShowMenu(false); setPanel('share') }, color: '#1A1C21' },
+                  { icon: '📥', label: 'Экспорт истории',    action: exportRoomHistory, color: '#1A1C21' },
+                  ...(isAdmin ? [{ icon: '🗑', label: 'Очистить историю', action: () => setMenuAction('clear'), color: '#F0B90B' }] : []),
+                  { icon: '🚪', label: 'Покинуть комнату',  action: () => setMenuAction('leave'), color: '#E8251F' },
+                  ...(myRole === 'owner' ? [{ icon: '🚫', label: 'Удалить комнату', action: () => setMenuAction('delete'), color: '#E8251F' }] : []),
+                ].map((item, i, arr) => (
+                  <button key={item.label} onClick={item.action} style={{
+                    width: '100%', padding: '13px 16px', border: 'none', cursor: 'pointer',
+                    background: 'white', display: 'flex', alignItems: 'center', gap: 12,
+                    borderBottom: i < arr.length - 1 ? '1px solid #F2F3F5' : 'none',
+                    textAlign: 'left',
+                  }}>
+                    <span style={{ fontSize: 18, width: 24, textAlign: 'center' }}>{item.icon}</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: item.color }}>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
         </div>
       </div>
+
+      {showMenu && <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setShowMenu(false)} />}
+
+      {/* Диалог подтверждения */}
+      {(menuAction === 'delete' || menuAction === 'leave' || menuAction === 'clear') && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 60,
+          background: 'rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 24px',
+        }}>
+          <div style={{
+            background: 'white', borderRadius: 20, padding: '24px',
+            width: '100%', maxWidth: 320,
+            animation: 'pop-in 0.2s var(--spring-bounce) both',
+          }}>
+            <p style={{ fontSize: 17, fontWeight: 700, color: '#1A1C21', marginBottom: 8, textAlign: 'center' }}>
+              {menuAction === 'delete' ? 'Удалить комнату?' : menuAction === 'leave' ? 'Покинуть комнату?' : 'Очистить историю?'}
+            </p>
+            <p style={{ fontSize: 13, color: '#9498AB', textAlign: 'center', marginBottom: 20, lineHeight: 1.5 }}>
+              {menuAction === 'delete' ? 'Комната и все сообщения будут удалены навсегда'
+                : menuAction === 'leave' ? 'Вы покинете комнату. Вернуться можно по invite-ссылке'
+                : 'Все сообщения комнаты будут удалены'}
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { setMenuAction('none'); setShowMenu(false) }} style={{
+                flex: 1, padding: '12px', borderRadius: 12, border: 'none',
+                background: '#F2F3F5', color: '#1A1C21', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              }}>Отмена</button>
+              <button
+                onClick={menuAction === 'delete' ? deleteRoom : menuAction === 'leave' ? leaveRoom : clearRoomHistory}
+                disabled={menuLoading}
+                style={{
+                  flex: 1, padding: '12px', borderRadius: 12, border: 'none',
+                  background: menuAction === 'clear' ? '#F0B90B' : '#E8251F',
+                  color: menuAction === 'clear' ? '#1A1C21' : 'white',
+                  fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                  opacity: menuLoading ? 0.6 : 1,
+                }}
+              >
+                {menuLoading ? '...' : menuAction === 'delete' ? 'Удалить' : menuAction === 'leave' ? 'Покинуть' : 'Очистить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── ПАНЕЛЬ: УЧАСТНИКИ ── */}
       {panel === 'members' && (
@@ -420,41 +570,54 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
                   </div>
                 )}
 
-                <div style={{ maxWidth: '78%' }}>
-                  {!own && !group && (
+                <div style={{ maxWidth: '78%', opacity: m.status === 'sending' ? 0.7 : 1, transition: 'opacity 0.2s' }}>
+                  {!own && !group && !decodeListingCard(m.text) && (
                     <p style={{ fontSize: 11, fontWeight: 700, color: '#1E6FEB', marginBottom: 2, paddingLeft: 4 }}>
                       {name}
                     </p>
                   )}
-                  <div style={{
-                    padding: '8px 12px',
-                    borderRadius: own
-                      ? (group && !showSep ? '18px 4px 4px 18px' : '18px 18px 4px 18px')
-                      : (group && !showSep ? '4px 18px 18px 4px' : '4px 18px 18px 18px'),
-                    background: m.status === 'error' ? '#FFEBEA' : own ? '#2AABEE' : '#fff',
-                    color: m.status === 'error' ? '#A8170F' : own ? '#fff' : '#1A1C21',
-                    fontSize: 15, lineHeight: 1.45,
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                    opacity: m.status === 'sending' ? 0.7 : 1,
-                  }}>
-                    {m.text}
-                    <span style={{
-                      fontSize: 10, marginLeft: 8, float: 'right',
-                      marginTop: 2, whiteSpace: 'nowrap', opacity: 0.65,
-                      fontFamily: 'var(--font-mono)',
-                    }}>
-                      {formatTime(m.created_at)}
-                      {own && ` ${m.status === 'sending' ? '⏳' : m.status === 'error' ? '!' : '✓'}`}
-                    </span>
-                  </div>
-                  {m.status === 'error' && (
-                    <button onClick={() => retrySend(m)} style={{
-                      display: 'block', marginTop: 4, marginLeft: 'auto',
-                      fontSize: 11, color: '#E8251F', fontWeight: 700,
-                      background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0',
-                    }}>↻ Повторить</button>
-                  )}
+                  {(() => {
+                    const cardData = decodeListingCard(m.text)
+                    if (cardData) {
+                      return (
+                        <ListingCardMessage
+                          data={cardData}
+                          currentUserId={currentUserId}
+                          isOwn={own}
+                          timeStr={formatTime(m.created_at)}
+                          deliveryStatus={own ? <span style={{ fontSize: 10, opacity: 0.65 }}>{m.status === 'sending' ? '⏳' : '✓'}</span> : undefined}
+                        />
+                      )
+                    }
+                    return (
+                      <>
+                        <div style={{
+                          padding: '8px 12px',
+                          borderRadius: own
+                            ? (group && !showSep ? '18px 4px 4px 18px' : '18px 18px 4px 18px')
+                            : (group && !showSep ? '4px 18px 18px 4px' : '4px 18px 18px 18px'),
+                          background: m.status === 'error' ? '#FFEBEA' : own ? '#2AABEE' : '#fff',
+                          color: m.status === 'error' ? '#A8170F' : own ? '#fff' : '#1A1C21',
+                          fontSize: 15, lineHeight: 1.45,
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                        }}>
+                          {m.text}
+                          <span style={{ fontSize: 10, marginLeft: 8, float: 'right', marginTop: 2, whiteSpace: 'nowrap', opacity: 0.65, fontFamily: 'var(--font-mono)' }}>
+                            {formatTime(m.created_at)}
+                            {own && ` ${m.status === 'sending' ? '⏳' : m.status === 'error' ? '!' : '✓'}`}
+                          </span>
+                        </div>
+                        {m.status === 'error' && (
+                          <button onClick={() => retrySend(m)} style={{
+                            display: 'block', marginTop: 4, marginLeft: 'auto',
+                            fontSize: 11, color: '#E8251F', fontWeight: 700,
+                            background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0',
+                          }}>↻ Повторить</button>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
             </div>
@@ -465,7 +628,8 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
 
       {/* ── INPUT ── */}
       <div style={{
-        flexShrink: 0,
+        flexShrink: 0, zIndex: 20,
+        position: 'sticky', bottom: 0,
         display: 'flex', alignItems: 'flex-end', gap: 8,
         padding: '8px 12px', paddingBottom: 'calc(10px + var(--sab))',
         background: 'rgba(255,255,255,0.97)',
