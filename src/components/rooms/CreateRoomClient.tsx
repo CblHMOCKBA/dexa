@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import BackButton from '@/components/ui/BackButton'
 
 export default function CreateRoomClient() {
@@ -18,30 +17,27 @@ export default function CreateRoomClient() {
     if (!name.trim()) { setError('Введи название'); return }
     setSaving(true); setError(null)
 
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setSaving(false); return }
-
-    const { data, error: err } = await supabase
-      .from('rooms')
-      .insert({
-        name:        name.trim(),
-        description: description.trim() || null,
-        owner_id:    user.id,
-        is_private:  isPrivate,
+    try {
+      const res = await fetch('/api/room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:        name.trim(),
+          description: description.trim() || null,
+          is_private:  isPrivate,
+        }),
       })
-      .select('id')
-      .single()
-
-    if (err || !data) {
-      setError('Ошибка создания. Попробуй ещё раз.')
+      const data = await res.json()
+      if (!res.ok || !data.id) {
+        setError(data.error ?? 'Ошибка создания. Попробуй ещё раз.')
+        setSaving(false)
+        return
+      }
+      router.push(`/rooms/${data.id}`)
+    } catch {
+      setError('Ошибка сети. Попробуй ещё раз.')
       setSaving(false)
-      return
     }
-
-    // Небольшая задержка чтобы триггер успел добавить owner как member
-    await new Promise(r => setTimeout(r, 300))
-    router.push(`/rooms/${data.id}`)
   }
 
   return (
