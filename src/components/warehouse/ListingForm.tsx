@@ -13,11 +13,7 @@ type FormData = {
   description: string; tags: string; upc: string
 }
 
-// Одна запись серийного номера
-type SerialEntry = {
-  serial_number: string
-  imei: string
-}
+type SerialEntry = { serial_number: string; imei: string }
 
 const EMPTY: FormData = {
   title: '', brand: '', model: '', condition: 'new',
@@ -46,14 +42,6 @@ function calcMargin(price: number, cost: number) {
   return Math.round(((price - cost) / price) * 100)
 }
 
-// Определяем тип сканирования по значению
-function detectScanType(value: string): 'imei' | 'serial' | 'upc' {
-  const digits = value.replace(/\D/g, '')
-  if (digits.length === 15) return 'imei'        // IMEI — 15 цифр
-  if (/^\d{8,14}$/.test(value)) return 'upc'     // UPC/EAN — только цифры 8-14 символов
-  return 'serial'                                  // Всё остальное — серийник
-}
-
 const LABEL: React.CSSProperties = {
   display: 'block', fontSize: 12, fontWeight: 600,
   color: '#9498AB', marginBottom: 6,
@@ -61,6 +49,14 @@ const LABEL: React.CSSProperties = {
 }
 
 type ScanMode = 'upc' | 'serial' | 'imei' | null
+
+type UPCStatus =
+  | { state: 'idle' }
+  | { state: 'searching' }
+  | { state: 'found'; source: 'dexa' | 'external'; product: ProductData }
+  | { state: 'not_found'; upc: string }
+  | { state: 'saving' }
+  | { state: 'saved' }
 
 type Props = {
   listing?: Listing
@@ -77,35 +73,26 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
   const [error, setError]         = useState<string | null>(null)
   const [saveAsTpl, setSaveAsTpl] = useState(false)
   const [tplName, setTplName]     = useState('')
+  const [upcStatus, setUpcStatus] = useState<UPCStatus>({ state: 'idle' })
+  const [scanMode, setScanMode]   = useState<ScanMode>(null)
+  const [scanIdx, setScanIdx]     = useState<number | null>(null)
 
-  // UPC сканер + продукт
-  const [scanMode, setScanMode]               = useState<ScanMode>(null)
-  const [scanning, setScanning]               = useState(false)
-  const [scannedProduct, setScannedProduct]   = useState<ProductData | null>(null)
-
-  // Серийные номера — массив для партии
   const qty = Math.max(1, Number(form.quantity) || 1)
   const [serials, setSerials] = useState<SerialEntry[]>(() =>
     Array.from({ length: qty }, () => ({ serial_number: '', imei: '' }))
   )
-  // Индекс для которого сейчас сканируем S/N или IMEI
-  const [scanIdx, setScanIdx] = useState<number | null>(null)
-
-  // Refs для авто-фокуса после сканирования
   const snRefs   = useRef<(HTMLInputElement | null)[]>([])
   const imeiRefs = useRef<(HTMLInputElement | null)[]>([])
 
   const isSmartphone = ['apple', 'samsung', 'xiaomi', 'huawei', 'google', 'nothing']
     .includes(form.brand.toLowerCase())
 
-  // Синхронизируем размер массива serials с количеством
   useEffect(() => {
     setSerials(prev => {
       const newLen = Math.max(1, Number(form.quantity) || 1)
       if (prev.length === newLen) return prev
-      if (prev.length < newLen) {
+      if (prev.length < newLen)
         return [...prev, ...Array.from({ length: newLen - prev.length }, () => ({ serial_number: '', imei: '' }))]
-      }
       return prev.slice(0, newLen)
     })
   }, [form.quantity])
@@ -118,17 +105,16 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
     setSerials(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s))
   }
 
-  // ── UPC сканирование ────────────────────────────────────
+  // UPC flow
   const handleUPCScan = useCallback(async (result: ScanResult) => {
     setScanMode(null)
-    setScanning(true)
+    setUpcStatus({ state: 'searching' })
     f('upc', result.value)
 
     const supabase = createClient()
     const product  = await lookupProduct(result.value, supabase)
 
     if (product) {
-      setScannedProduct(product)
       setForm(p => ({
         ...p,
         upc:         result.value,
@@ -137,118 +123,94 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
         model:       product.model ?? p.model,
         description: product.description ?? p.description,
       }))
+      setUpcStatus({ state: 'found', source: product.source === 'internal' ? 'dexa' : 'external', product })
+      // Автофокус на цену
+      setTimeout(() => {
+        document.querySelector<HTMLInputElement>('[data-field="price"]')?.focus()
+      }, 300)
     } else {
       setForm(p => ({ ...p, upc: result.value }))
+      setUpcStatus({ state: 'not_found', upc: result.value })
     }
-
-    setScanning(false)
-
-    // После UPC → автоматически фокус на первый S/N
-    setTimeout(() => {
-      snRefs.current[0]?.focus()
-      snRefs.current[0]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 300)
   }, [])
 
-  // ── Сканирование S/N или IMEI ───────────────────────────
+  // Сохранить в каталог Dexa
+  async function saveToDexa() {
+    if (upcStatus.state !== 'not_found') return
+    if (!form.title || !form.brand) { setError('Заполни название и бренд'); return }
+    setUpcStatus({ state: 'saving' })
+    const supabase = createClient()
+    await supabase.from('product_catalog').upsert({
+      upc:         upcStatus.upc,
+      title:       form.title.trim(),
+      brand:       form.brand.trim() || null,
+      model:       form.model.trim() || null,
+      description: form.description.trim() || null,
+      source:      'internal',
+    }, { onConflict: 'upc' })
+    setUpcStatus({ state: 'saved' })
+  }
+
+  // S/N + IMEI flow
   const handleSerialScan = useCallback((result: ScanResult, idx: number) => {
-    setScanMode(null)
-    setScanIdx(null)
-
-    const detected = detectScanType(result.value)
-
-    if (detected === 'imei') {
-      // Отсканировали IMEI
+    setScanMode(null); setScanIdx(null)
+    if (result.type === 'imei') {
       updateSerial(idx, 'imei', result.value)
-      // Фокус на следующий S/N если есть
-      setTimeout(() => {
-        const next = idx + 1
-        if (next < qty) {
-          snRefs.current[next]?.focus()
-        }
-      }, 100)
+      setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
     } else {
-      // Отсканировали S/N
       updateSerial(idx, 'serial_number', result.value)
-      // Если смартфон — фокус на IMEI этого же устройства
       if (isSmartphone) {
         setTimeout(() => imeiRefs.current[idx]?.focus(), 100)
       } else {
-        // Иначе — следующий S/N
-        setTimeout(() => {
-          const next = idx + 1
-          if (next < qty) snRefs.current[next]?.focus()
-        }, 100)
+        setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
       }
     }
   }, [qty, isSmartphone])
 
   const margin = form.price && form.cost_price
-    ? calcMargin(Number(form.price), Number(form.cost_price))
-    : null
-
+    ? calcMargin(Number(form.price), Number(form.cost_price)) : null
   const filledSerials = serials.filter(s => s.serial_number || s.imei).length
 
   async function save(e: React.FormEvent) {
     e.preventDefault()
     if (!form.title || !form.price) { setError('Заполни название и цену'); return }
     setSaving(true); setError(null)
-
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setSaving(false); return }
-
     const payload = {
-      title:       form.title.trim(),
-      brand:       form.brand.trim() || null,
-      model:       form.model.trim() || null,
-      condition:   form.condition,
-      price:       Number(form.price),
-      quantity:    Number(form.quantity) || 1,
-      cost_price:  form.cost_price ? Number(form.cost_price) : null,
-      min_stock:   Number(form.min_stock) || 0,
+      title: form.title.trim(), brand: form.brand.trim() || null,
+      model: form.model.trim() || null, condition: form.condition,
+      price: Number(form.price), quantity: Number(form.quantity) || 1,
+      cost_price: form.cost_price ? Number(form.cost_price) : null,
+      min_stock: Number(form.min_stock) || 0,
       description: form.description.trim() || null,
-      tags:        form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
-      upc:         form.upc || null,
+      tags: form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
+      upc: form.upc || null,
     }
-
     let listingId: string
-
     if (listing) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase.from('listings') as any)
-        .update(payload).eq('id', listing.id).select('id').single()
+      const { data, error } = await (supabase.from('listings') as any).update(payload).eq('id', listing.id).select('id').single()
       if (error) { setError('Ошибка сохранения'); setSaving(false); return }
       listingId = data.id
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data, error } = await (supabase.from('listings') as any)
-        .insert({ ...payload, seller_id: user.id }).select('id').single()
+      const { data, error } = await (supabase.from('listings') as any).insert({ ...payload, seller_id: user.id }).select('id').single()
       if (error) { setError('Ошибка сохранения'); setSaving(false); return }
       listingId = data.id
     }
-
-    // Серийные номера — только если не режим редактирования
     if (!listing) {
-      const validSerials = serials.filter(s => s.serial_number || s.imei)
-      if (validSerials.length > 0) {
+      const valid = serials.filter(s => s.serial_number || s.imei)
+      if (valid.length > 0) {
         await supabase.from('serial_items').insert(
-          validSerials.map(s => ({
-            listing_id:     listingId,
-            serial_number:  s.serial_number || null,
-            imei:           s.imei || null,
-            acquired_price: form.cost_price ? Number(form.cost_price) : null,
-          }))
+          valid.map(s => ({ listing_id: listingId, serial_number: s.serial_number || null, imei: s.imei || null, acquired_price: form.cost_price ? Number(form.cost_price) : null }))
         )
       }
     }
-
     if (saveAsTpl && tplName.trim()) {
-      await supabase.from('listing_templates').insert({
-        seller_id: user.id, name: tplName.trim(), data: payload,
-      })
+      await supabase.from('listing_templates').insert({ seller_id: user.id, name: tplName.trim(), data: payload })
     }
-
     setSaving(false)
     router.push('/warehouse')
     router.refresh()
@@ -256,59 +218,92 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
 
   return (
     <>
-      <form onSubmit={save} style={{
-        padding: '16px', display: 'flex', flexDirection: 'column', gap: 16,
-        paddingBottom: 'calc(40px + var(--sab))',
-      }}>
+      <form onSubmit={save} style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 'calc(40px + var(--sab))' }}>
 
-        {/* ── UPC Сканер ── */}
-        <div>
-          <button type="button"
-            onClick={() => setScanMode('upc')}
-            disabled={scanning}
-            style={{
+        {/* ── Шаг 1: UPC ── */}
+        <div style={{ background: '#F8F9FF', borderRadius: 16, padding: '14px', border: '1px solid #E0E8FF' }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: '#1249A8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+            Шаг 1 · Штрихкод товара (UPC)
+          </p>
+
+          {upcStatus.state === 'idle' && (
+            <button type="button" onClick={() => setScanMode('upc')} style={{
               width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-              padding: '14px', borderRadius: 14,
-              background: scannedProduct ? '#E6F9F3' : '#1E6FEB',
-              border: scannedProduct ? '1.5px solid #00B173' : 'none',
-              color: scannedProduct ? '#006644' : '#fff',
-              fontSize: 15, fontWeight: 700, cursor: 'pointer',
-              transition: 'all 0.15s',
+              padding: '13px', borderRadius: 12, background: '#1E6FEB', color: '#fff',
+              border: 'none', fontSize: 14, fontWeight: 700, cursor: 'pointer',
             }}>
-            {scanning ? (
-              <>
-                <div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.4)', borderTop: '2px solid #fff', borderRadius: '50%', animation: 'spin 1s linear infinite' }}/>
-                Ищем товар в базе...
-              </>
-            ) : scannedProduct ? (
-              <>✓ Найдено: {scannedProduct.source === 'internal' ? 'каталог Dexa' : 'база товаров'}</>
-            ) : (
-              <>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                  <path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"/>
-                  <rect x="7" y="7" width="10" height="10" rx="1"/>
-                </svg>
-                1. Сканировать штрихкод (UPC)
-              </>
-            )}
-          </button>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                <path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"/>
+                <rect x="7" y="7" width="10" height="10" rx="1"/>
+              </svg>
+              Сканировать штрихкод (UPC)
+            </button>
+          )}
 
-          {scannedProduct && (
-            <div style={{ background: '#F8F9FF', borderRadius: 12, padding: '10px 14px', border: '1px solid #E0E8FF', display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
-              {scannedProduct.image_url && (
-                <img src={scannedProduct.image_url} alt="" style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 8, flexShrink: 0 }} />
+          {upcStatus.state === 'searching' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px', background: '#EBF2FF', borderRadius: 12 }}>
+              <div style={{ width: 18, height: 18, border: '2px solid #1E6FEB', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite', flexShrink: 0 }}/>
+              <p style={{ fontSize: 14, fontWeight: 600, color: '#1249A8' }}>Ищем в каталоге Dexa...</p>
+            </div>
+          )}
+
+          {upcStatus.state === 'found' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#E6F9F3', borderRadius: 12, border: '1.5px solid #00B173' }}>
+              {upcStatus.product.image_url && (
+                <img src={upcStatus.product.image_url} alt="" style={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 8, flexShrink: 0 }} />
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#006644', marginBottom: 2 }}>
+                  ✓ {upcStatus.source === 'dexa' ? 'Найдено в каталоге Dexa' : 'Найдено в базе товаров'}
+                </p>
                 <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {scannedProduct.title}
+                  {upcStatus.product.title}
                 </p>
                 <p style={{ fontSize: 11, color: '#9498AB', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
-                  UPC: {form.upc}{scannedProduct.brand && ` · ${scannedProduct.brand}`}
+                  UPC: {form.upc}
                 </p>
               </div>
-              <button type="button" onClick={() => { setScannedProduct(null); f('upc', '') }}
+              <button type="button" onClick={() => { setUpcStatus({ state: 'idle' }); f('upc', '') }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9498AB', fontSize: 18 }}>×
               </button>
+            </div>
+          )}
+
+          {(upcStatus.state === 'not_found' || upcStatus.state === 'saving' || upcStatus.state === 'saved') && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#FFF4E0', borderRadius: 10, border: '1px solid #F5A623' }}>
+                <span style={{ fontSize: 16 }}>🔍</span>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: '#7A4F00' }}>Товар не найден в базе</p>
+                  <p style={{ fontSize: 11, color: '#9A6800', fontFamily: 'var(--font-mono)' }}>UPC: {form.upc}</p>
+                </div>
+                <button type="button" onClick={() => { setUpcStatus({ state: 'idle' }); f('upc', '') }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9498AB', fontSize: 18 }}>×</button>
+              </div>
+              <p style={{ fontSize: 12, color: '#5A5E72', lineHeight: 1.5 }}>
+                Заполни название и бренд ниже — следующий дилер с этим товаром получит данные автоматически из каталога Dexa.
+              </p>
+              {upcStatus.state === 'saved' ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: '#E6F9F3', borderRadius: 10 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00B173" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: '#006644' }}>Сохранено в каталог Dexa ✓</p>
+                </div>
+              ) : (
+                <button type="button" onClick={saveToDexa}
+                  disabled={!form.title || !form.brand || upcStatus.state === 'saving'}
+                  style={{
+                    width: '100%', padding: '11px', borderRadius: 10,
+                    background: form.title && form.brand ? '#1E6FEB' : '#F2F3F5',
+                    color: form.title && form.brand ? '#fff' : '#9498AB',
+                    border: 'none', fontSize: 13, fontWeight: 700,
+                    cursor: form.title && form.brand ? 'pointer' : 'default',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  }}>
+                  {upcStatus.state === 'saving' ? (
+                    <><div style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTop: '2px solid #fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}/>Сохраняем...</>
+                  ) : '💾 Сохранить в каталог Dexa'}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -317,7 +312,7 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
         <div>
           <label style={LABEL}>Название *</label>
           <input value={form.title} onChange={e => f('title', e.target.value)}
-            placeholder="iPhone 15 Pro Max 256GB" required className="input" />
+            placeholder="iPhone 17 Pro Max 256GB Silver" required className="input" />
         </div>
 
         {/* Бренд + модель */}
@@ -328,7 +323,7 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
           </div>
           <div>
             <label style={LABEL}>Модель</label>
-            <input value={form.model} onChange={e => f('model', e.target.value)} placeholder="iPhone 15 Pro" className="input" />
+            <input value={form.model} onChange={e => f('model', e.target.value)} placeholder="iPhone 17 Pro" className="input" />
           </div>
         </div>
 
@@ -353,7 +348,7 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div>
             <label style={LABEL}>Цена ₽ *</label>
-            <input type="number" value={form.price} onChange={e => f('price', e.target.value)}
+            <input data-field="price" type="number" value={form.price} onChange={e => f('price', e.target.value)}
               placeholder="119900" required min={1} className="input" />
           </div>
           <div>
@@ -363,66 +358,41 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
           </div>
         </div>
 
-        {/* ── Серийные номера — только при создании ── */}
+        {/* ── Шаг 2: Серийные номера ── */}
         {!listing && (
-          <div style={{ background: '#F8F9FF', borderRadius: 14, padding: '14px', border: '1px solid #E0E8FF' }}>
+          <div style={{ background: '#F8F9FF', borderRadius: 16, padding: '14px', border: '1px solid #E0E8FF' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <p style={{ fontSize: 12, fontWeight: 700, color: '#1249A8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                2. Серийные номера
+              <p style={{ fontSize: 11, fontWeight: 700, color: '#1249A8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Шаг 2 · Серийные номера
               </p>
-              {/* Прогресс */}
-              {qty > 0 && (
-                <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: filledSerials === qty ? '#006644' : '#9498AB', fontWeight: 700 }}>
-                  {filledSerials}/{qty}
-                </span>
-              )}
+              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: filledSerials === qty ? '#006644' : '#9498AB' }}>
+                {filledSerials}/{qty}
+              </span>
             </div>
 
-            {/* Прогресс-бар */}
             {qty > 1 && (
               <div style={{ height: 3, background: '#E0E8FF', borderRadius: 2, marginBottom: 12, overflow: 'hidden' }}>
-                <div style={{ height: '100%', background: filledSerials === qty ? '#00B173' : '#1E6FEB', width: `${(filledSerials / qty) * 100}%`, transition: 'width 0.3s ease', borderRadius: 2 }}/>
+                <div style={{ height: '100%', background: filledSerials === qty ? '#00B173' : '#1E6FEB', width: `${(filledSerials / qty) * 100}%`, transition: 'width 0.3s', borderRadius: 2 }}/>
               </div>
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {serials.map((entry, idx) => (
-                <div key={idx} style={{
-                  background: '#fff', borderRadius: 12, padding: '12px',
-                  border: `1.5px solid ${entry.serial_number || entry.imei ? '#1E6FEB' : '#E0E1E6'}`,
-                  transition: 'border-color 0.15s',
-                }}>
-                  {qty > 1 && (
-                    <p style={{ fontSize: 11, fontWeight: 700, color: '#1249A8', marginBottom: 8 }}>
-                      Единица {idx + 1} из {qty}
-                    </p>
-                  )}
+                <div key={idx} style={{ background: '#fff', borderRadius: 12, padding: '12px', border: `1.5px solid ${entry.serial_number || entry.imei ? '#1E6FEB' : '#E0E1E6'}` }}>
+                  {qty > 1 && <p style={{ fontSize: 11, fontWeight: 700, color: '#1249A8', marginBottom: 8 }}>Единица {idx + 1} из {qty}</p>}
 
-                  {/* S/N строка */}
                   <div style={{ display: 'flex', gap: 8, marginBottom: isSmartphone ? 8 : 0 }}>
                     <input
                       ref={el => { snRefs.current[idx] = el }}
                       value={entry.serial_number}
                       onChange={e => updateSerial(idx, 'serial_number', e.target.value)}
-                      placeholder="Серийный номер (напр. JTCWH5YW30)"
-                      style={{
-                        flex: 1, background: '#F8F9FF',
-                        border: '1.5px solid #E0E1E6', borderRadius: 10,
-                        padding: '10px 12px', fontSize: 13, color: '#1A1C21',
-                        outline: 'none', fontFamily: 'var(--font-mono)',
-                        transition: 'border-color 0.15s',
-                      }}
+                      placeholder="S/N (напр. JTCWH5YW30)"
+                      style={{ flex: 1, background: '#F8F9FF', border: '1.5px solid #E0E1E6', borderRadius: 10, padding: '10px 12px', fontSize: 13, color: '#1A1C21', outline: 'none', fontFamily: 'var(--font-mono)' }}
                       onFocus={e => { e.target.style.borderColor = '#1E6FEB' }}
                       onBlur={e => { e.target.style.borderColor = '#E0E1E6' }}
                     />
-                    {/* Кнопка скан S/N */}
-                    <button type="button"
-                      onClick={() => { setScanIdx(idx); setScanMode('serial') }}
-                      style={{
-                        width: 44, height: 44, borderRadius: 10, flexShrink: 0,
-                        background: '#EBF2FF', border: 'none', cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
+                    <button type="button" onClick={() => { setScanIdx(idx); setScanMode('serial') }}
+                      style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0, background: '#EBF2FF', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E6FEB" strokeWidth="2">
                         <path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"/>
                         <rect x="7" y="7" width="10" height="10" rx="1"/>
@@ -430,37 +400,20 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
                     </button>
                   </div>
 
-                  {/* IMEI — только для смартфонов */}
                   {isSmartphone && (
                     <div style={{ display: 'flex', gap: 8 }}>
                       <input
                         ref={el => { imeiRefs.current[idx] = el }}
                         value={entry.imei}
-                        onChange={e => {
-                          const v = e.target.value.replace(/\D/g, '').slice(0, 15)
-                          updateSerial(idx, 'imei', v)
-                        }}
-                        placeholder="IMEI (15 цифр, опционально)"
-                        maxLength={15}
-                        inputMode="numeric"
-                        style={{
-                          flex: 1, background: '#F8F9FF',
-                          border: `1.5px solid ${entry.imei && entry.imei.length !== 15 ? '#F5A623' : '#E0E1E6'}`,
-                          borderRadius: 10, padding: '10px 12px',
-                          fontSize: 13, color: '#1A1C21', outline: 'none',
-                          fontFamily: 'var(--font-mono)', transition: 'border-color 0.15s',
-                        }}
+                        onChange={e => updateSerial(idx, 'imei', e.target.value.replace(/\D/g, '').slice(0, 15))}
+                        placeholder="IMEI (опционально)"
+                        maxLength={15} inputMode="numeric"
+                        style={{ flex: 1, background: '#F8F9FF', border: `1.5px solid ${entry.imei && entry.imei.length !== 15 ? '#F5A623' : '#E0E1E6'}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, color: '#1A1C21', outline: 'none', fontFamily: 'var(--font-mono)' }}
                         onFocus={e => { e.target.style.borderColor = '#1E6FEB' }}
                         onBlur={e => { e.target.style.borderColor = entry.imei && entry.imei.length !== 15 ? '#F5A623' : '#E0E1E6' }}
                       />
-                      {/* Кнопка скан IMEI */}
-                      <button type="button"
-                        onClick={() => { setScanIdx(idx); setScanMode('imei') }}
-                        style={{
-                          width: 44, height: 44, borderRadius: 10, flexShrink: 0,
-                          background: '#F0E8FF', border: 'none', cursor: 'pointer',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}>
+                      <button type="button" onClick={() => { setScanIdx(idx); setScanMode('imei') }}
+                        style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0, background: '#F0E8FF', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5B00CC" strokeWidth="2">
                           <path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"/>
                           <rect x="7" y="7" width="10" height="10" rx="1"/>
@@ -469,46 +422,27 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
                     </div>
                   )}
 
-                  {/* Статус */}
                   {(entry.serial_number || entry.imei) && (
                     <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                      {entry.serial_number && (
-                        <span style={{ fontSize: 10, background: '#EBF2FF', color: '#1249A8', borderRadius: 5, padding: '2px 8px', fontFamily: 'var(--font-mono)' }}>
-                          S/N: {entry.serial_number}
-                        </span>
-                      )}
-                      {entry.imei && (
-                        <span style={{ fontSize: 10, background: '#F0E8FF', color: '#5B00CC', borderRadius: 5, padding: '2px 8px', fontFamily: 'var(--font-mono)' }}>
-                          IMEI: {entry.imei}
-                        </span>
-                      )}
+                      {entry.serial_number && <span style={{ fontSize: 10, background: '#EBF2FF', color: '#1249A8', borderRadius: 5, padding: '2px 8px', fontFamily: 'var(--font-mono)' }}>S/N: {entry.serial_number}</span>}
+                      {entry.imei && <span style={{ fontSize: 10, background: '#F0E8FF', color: '#5B00CC', borderRadius: 5, padding: '2px 8px', fontFamily: 'var(--font-mono)' }}>IMEI: {entry.imei}</span>}
                     </div>
                   )}
                 </div>
               ))}
             </div>
-
-            <p style={{ fontSize: 11, color: '#9498AB', marginTop: 10 }}>
-              После сканирования UPC — поле S/N получит фокус автоматически
-            </p>
           </div>
         )}
 
-        {/* Себестоимость + мин. остаток */}
+        {/* Себестоимость */}
         <div style={{ background: '#F8F9FF', borderRadius: 14, padding: '14px', border: '1px solid #E0E8FF' }}>
-          <p style={{ fontSize: 11, fontWeight: 600, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 12 }}>
-            🔒 Только для вас
-          </p>
+          <p style={{ fontSize: 11, fontWeight: 600, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 12 }}>🔒 Только для вас</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
               <label style={LABEL}>Себестоимость ₽</label>
               <input type="number" value={form.cost_price} onChange={e => f('cost_price', e.target.value)}
                 placeholder="80000" min={0} className="input" style={{ background: '#fff' }} />
-              {margin !== null && (
-                <p style={{ fontSize: 12, marginTop: 5, fontFamily: 'var(--font-mono)', fontWeight: 700, color: margin > 15 ? '#006644' : '#7A4F00' }}>
-                  Маржа: +{margin}%
-                </p>
-              )}
+              {margin !== null && <p style={{ fontSize: 12, marginTop: 5, fontFamily: 'var(--font-mono)', fontWeight: 700, color: margin > 15 ? '#006644' : '#7A4F00' }}>Маржа: +{margin}%</p>}
             </div>
             <div>
               <label style={LABEL}>Мин. остаток 🔔</label>
@@ -518,22 +452,17 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
           </div>
         </div>
 
-        {/* Теги */}
         <div>
           <label style={LABEL}>Теги</label>
-          <input value={form.tags} onChange={e => f('tags', e.target.value)}
-            placeholder="опт, срочно, новинка" className="input" />
+          <input value={form.tags} onChange={e => f('tags', e.target.value)} placeholder="опт, срочно, новинка" className="input" />
           <p style={{ fontSize: 11, color: '#9498AB', marginTop: 4 }}>Через запятую</p>
         </div>
-
-        {/* Описание */}
         <div>
           <label style={LABEL}>Описание</label>
           <textarea value={form.description} onChange={e => f('description', e.target.value)}
             placeholder="Оригинал, запечатан..." rows={3} className="input" style={{ resize: 'none' }} />
         </div>
 
-        {/* Шаблон */}
         {showSaveAsTemplate && !listing && (
           <div style={{ background: '#F2F3F5', borderRadius: 12, padding: '12px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
@@ -541,10 +470,7 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
                 style={{ width: 18, height: 18, accentColor: '#1E6FEB', cursor: 'pointer' }} />
               <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1C21' }}>Сохранить как шаблон</span>
             </label>
-            {saveAsTpl && (
-              <input value={tplName} onChange={e => setTplName(e.target.value)}
-                placeholder="Название шаблона" className="input" style={{ marginTop: 10 }} />
-            )}
+            {saveAsTpl && <input value={tplName} onChange={e => setTplName(e.target.value)} placeholder="Название шаблона" className="input" style={{ marginTop: 10 }} />}
           </div>
         )}
 
@@ -555,34 +481,14 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
         </button>
       </form>
 
-      {/* ── Сканер UPC ── */}
       {scanMode === 'upc' && (
-        <BarcodeScanner
-          mode="upc"
-          hint="Наведи на штрихкод коробки или товара"
-          onScan={handleUPCScan}
-          onClose={() => setScanMode(null)}
-        />
+        <BarcodeScanner mode="upc" hint="Наведи рамку на штрихкод JAN/UPC на коробке" onScan={handleUPCScan} onClose={() => setScanMode(null)} />
       )}
-
-      {/* ── Сканер S/N — перетаскиваемая рамка ── */}
       {scanMode === 'serial' && scanIdx !== null && (
-        <BarcodeScanner
-          mode="serial"
-          hint="Перемести рамку на штрихкод серийника"
-          onScan={r => handleSerialScan(r, scanIdx)}
-          onClose={() => { setScanMode(null); setScanIdx(null) }}
-        />
+        <BarcodeScanner mode="serial" hint="Перемести рамку на штрихкод серийника" onScan={r => handleSerialScan(r, scanIdx)} onClose={() => { setScanMode(null); setScanIdx(null) }} />
       )}
-
-      {/* ── Сканер IMEI ── */}
       {scanMode === 'imei' && scanIdx !== null && (
-        <BarcodeScanner
-          mode="imei"
-          hint="Перемести рамку на штрихкод IMEI/MEID"
-          onScan={r => handleSerialScan(r, scanIdx)}
-          onClose={() => { setScanMode(null); setScanIdx(null) }}
-        />
+        <BarcodeScanner mode="imei" hint="Перемести рамку на штрихкод IMEI/MEID" onScan={r => handleSerialScan(r, scanIdx)} onClose={() => { setScanMode(null); setScanIdx(null) }} />
       )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

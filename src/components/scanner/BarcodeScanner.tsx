@@ -24,23 +24,31 @@ type Props = {
 }
 
 function classifyAndClean(raw: string, mode: Mode): { type: ScanResult['type']; value: string } | null {
+  // Убираем Apple префиксы: (S), S/, SN:, и одиночную S в начале
   const clean = raw.trim()
-    .replace(/^\(S\)\s*/i, '')
-    .replace(/^S\/N[:\s]*/i, '')
+    .replace(/^\(S\)\s*/i, '')   // (S) JTCWH5YW30
+    .replace(/^S\/N[:\s#.]*/i, '') // S/N: JTCWH5YW30
+    .replace(/^SN[:\s#.]*/i, '')   // SN: JTCWH5YW30
+    .replace(/^S\s+/i, '')         // S JTCWH5YW30 (с пробелом)
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '')
 
-  if (/^\d{15}$/.test(clean)) {
+  // Если осталась одиночная S в начале перед серийником
+  // SJTCWH5YW30 → проверяем без S
+  // Серийник Apple всегда начинается с буквы которая входит в сам серийник
+  // Эвристика: если первая буква S и без неё длина 10-12 — убираем S
+
+  if (/^\d{15}$/.test(value)) {
     if (mode === 'upc') return null
-    return { type: 'imei', value: clean }
+    return { type: 'imei', value: value }
   }
-  if (/^\d{8,14}$/.test(clean)) {
+  if (/^\d{8,14}$/.test(value)) {
     if (mode === 'serial' || mode === 'imei') return null
-    return { type: 'upc', value: clean }
+    return { type: 'upc', value: value }
   }
-  if (/^[A-Z0-9]{6,15}$/.test(clean) && /[A-Z]/.test(clean) && /[0-9]/.test(clean)) {
+  if (/^[A-Z0-9]{6,15}$/.test(value) && /[A-Z]/.test(value) && /[0-9]/.test(value)) {
     if (mode === 'upc') return null
-    return { type: 'serial', value: clean }
+    return { type: 'serial', value: value }
   }
   return null
 }
