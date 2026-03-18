@@ -1,0 +1,10 @@
+{
+  "name": "Dexa",
+  "short_name": "Dexa",
+  "description": "B2B торговая платформа",
+  "start_url": "/feed",
+  "display": "standalone",
+  "background_color": "#F2F3F5",
+  "theme_color": "#F2F3F5",
+  "orientation": "portrait"
+}

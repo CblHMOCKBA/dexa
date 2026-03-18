@@ -1,0 +1,5 @@
+Этот файл заменяет src/components/chat/ChatWindowClient.tsx
+Основные изменения:
+1. Кнопка "Создать ордер" открывает панель с TimerSelect
+2. TimerSelect позволяет выбрать 15/30/60 минут
+3. При создании ордера timer_minutes передаётся в Supabase
