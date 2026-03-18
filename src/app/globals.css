@@ -247,8 +247,10 @@ body {
     border-bottom: 1px solid var(--border);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    padding: 0 16px 12px;
-    /* FIX: минимальная высота чтобы не прыгала при смене контента */
+    padding-left: 16px;
+    padding-right: 16px;
+    padding-bottom: 12px;
+    padding-top: calc(12px + var(--sat));
     min-height: calc(56px + var(--sat));
   }
 
