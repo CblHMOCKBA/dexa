@@ -24,31 +24,37 @@ type Props = {
 }
 
 function classifyAndClean(raw: string, mode: Mode): { type: ScanResult['type']; value: string } | null {
-  // Убираем Apple префиксы: (S), S/, SN:, и одиночную S в начале
-  const clean = raw.trim()
-    .replace(/^\(S\)\s*/i, '')   // (S) JTCWH5YW30
-    .replace(/^S\/N[:\s#.]*/i, '') // S/N: JTCWH5YW30
-    .replace(/^SN[:\s#.]*/i, '')   // SN: JTCWH5YW30
-    .replace(/^S\s+/i, '')         // S JTCWH5YW30 (с пробелом)
+  // Убираем Apple префиксы
+  let value = raw.trim()
+    .replace(/^\(S\)\s*/i, '')
+    .replace(/^S\/N[:\s#.]*/i, '')
+    .replace(/^SN[:\s#.]*/i, '')
+    .replace(/^S\s+/i, '')
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '')
 
-  // Если осталась одиночная S в начале перед серийником
-  // SJTCWH5YW30 → проверяем без S
-  // Серийник Apple всегда начинается с буквы которая входит в сам серийник
-  // Эвристика: если первая буква S и без неё длина 10-12 — убираем S
+  // Если S приклеилась спереди: SJTCWH5YW30 → JTCWH5YW30
+  if (value.startsWith('S') && value.length >= 9 && value.length <= 16) {
+    const withoutS = value.slice(1)
+    if (/[A-Z]/.test(withoutS) && /[0-9]/.test(withoutS) && withoutS.length >= 8 && withoutS.length <= 12) {
+      value = withoutS
+    }
+  }
 
+  // IMEI — ровно 15 цифр
   if (/^\d{15}$/.test(value)) {
     if (mode === 'upc') return null
-    return { type: 'imei', value: value }
+    return { type: 'imei', value }
   }
+  // UPC/EAN — только цифры 8-14
   if (/^\d{8,14}$/.test(value)) {
     if (mode === 'serial' || mode === 'imei') return null
-    return { type: 'upc', value: value }
+    return { type: 'upc', value }
   }
+  // Серийник — буквы + цифры 6-15
   if (/^[A-Z0-9]{6,15}$/.test(value) && /[A-Z]/.test(value) && /[0-9]/.test(value)) {
     if (mode === 'upc') return null
-    return { type: 'serial', value: value }
+    return { type: 'serial', value }
   }
   return null
 }
