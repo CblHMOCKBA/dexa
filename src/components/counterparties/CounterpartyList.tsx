@@ -122,12 +122,12 @@ export default function CounterpartyList({ counterparties }: { counterparties: C
             </Link>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {filtered.map(c => {
               const tc = TYPE_COLOR[c.type]
               return (
-                <Link key={c.id} href={`/counterparties/${c.id}`} style={{ textDecoration: 'none' }}>
-                  <div className="card-press" style={{ padding: '14px 16px' }}>
+                <Link key={c.id} href={`/counterparties/${c.id}`} className="press-card" style={{ textDecoration: 'none' }}>
+                  <div className="card anim-card" style={{ padding: '14px 16px' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
 
                       {/* Аватар */}

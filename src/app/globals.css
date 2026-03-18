@@ -331,3 +331,65 @@ body {
   background: var(--green);
   animation: pulse-dot 2s ease-in-out infinite;
 }
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pop-in {
+  0%   { opacity: 0; transform: scale(0.85) translateY(6px); }
+  70%  { transform: scale(1.03) translateY(-1px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(8px) scale(0.95); }
+}
+
+/* Press states for interactive cards */
+.press-card {
+  transition: transform 0.12s var(--spring-bounce), box-shadow 0.12s ease;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.press-card:active {
+  transform: scale(0.975);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+
+/* Tap highlight remove */
+a, button { -webkit-tap-highlight-color: transparent; }
+
+/* Skeleton pulse variant */
+.skeleton-round {
+  background: linear-gradient(90deg, #F0F1F4 25%, #E8E9ED 50%, #F0F1F4 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 50%;
+}
+
+/* Status badge animations */
+.badge-new { animation: pop-in 0.25s var(--spring-bounce) both; }
+
+/* Empty state */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 64px 24px; text-align: center;
+  animation: fade-up 0.3s var(--spring-smooth) both;
+}
+.empty-state-icon {
+  width: 72px; height: 72px; border-radius: 22px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 18px;
+  animation: pop-in 0.35s var(--spring-bounce) 0.1s both;
+}
+.empty-state-title {
+  font-size: 17px; font-weight: 700; color: #1A1C21; margin-bottom: 8px;
+}
+.empty-state-sub {
+  font-size: 14px; color: #9498AB; line-height: 1.5; max-width: 240px;
+}

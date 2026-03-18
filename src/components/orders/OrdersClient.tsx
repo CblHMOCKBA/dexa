@@ -11,6 +11,21 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   cancelled:   'Отменён',
 }
 
+function SkeletonOrder() {
+  return (
+    <div className="card" style={{ padding: '14px 16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div className="skeleton" style={{ width: 80, height: 20, borderRadius: 6 }}/>
+        <div className="skeleton" style={{ width: 60, height: 20, borderRadius: 6 }}/>
+      </div>
+      <div className="skeleton" style={{ width: '60%', height: 14, marginBottom: 8 }}/>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {[0,1,2,3].map(i => <div key={i} className="skeleton" style={{ flex: 1, height: 4, borderRadius: 2 }}/>)}
+      </div>
+    </div>
+  )
+}
+
 export default function OrdersClient({
   orders,
   currentUserId,
@@ -25,19 +40,19 @@ export default function OrdersClient({
       </div>
 
       {orders.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '80px 24px' }}>
-          <div style={{ width: 64, height: 64, borderRadius: 20, background: '#EBF2FF', margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1E6FEB" strokeWidth="1.8">
+        <div className="empty-state">
+          <div className="empty-state-icon" style={{ background: '#EBF2FF' }}>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#1E6FEB" strokeWidth="1.8">
               <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
               <rect x="9" y="3" width="6" height="4" rx="1"/>
               <path d="M9 12h6M9 16h4"/>
             </svg>
           </div>
-          <p style={{ fontWeight: 700, color: '#1A1C21', marginBottom: 6 }}>Нет сделок</p>
-          <p style={{ color: '#9498AB', fontSize: 14 }}>Нажми «Написать» на товар в ленте</p>
+          <p className="empty-state-title">Нет сделок</p>
+          <p className="empty-state-sub">Нажми «Написать» на карточку товара чтобы начать переговоры</p>
         </div>
       ) : (
-        <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="stagger" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {orders.map(order => {
             const isBuyer    = currentUserId === order.buyer_id
             const partner    = isBuyer ? order.seller : order.buyer
@@ -47,7 +62,7 @@ export default function OrdersClient({
 
             return (
               // КЛЮЧЕВОЕ: вся карточка — ссылка на экран ордера
-              <Link key={order.id} href={`/orders/${order.id}`} style={{ textDecoration: 'none' }}>
+              <Link key={order.id} href={`/orders/${order.id}`} className="press-card" style={{ textDecoration: 'none', display: 'block' }}>
                 <div className="card-press" style={{ padding: '14px 16px' }}>
                   {/* Шапка */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>

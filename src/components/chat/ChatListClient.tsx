@@ -5,6 +5,19 @@ import Link from 'next/link'
 import type { Chat, Room } from '@/types'
 import Avatar from '@/components/ui/Avatar'
 
+function SkeletonChat() {
+  return (
+    <div style={{ display: 'flex', gap: 12, padding: '12px 16px', alignItems: 'center' }}>
+      <div className="skeleton-round" style={{ width: 48, height: 48, flexShrink: 0 }}/>
+      <div style={{ flex: 1 }}>
+        <div className="skeleton" style={{ width: '50%', height: 14, marginBottom: 6 }}/>
+        <div className="skeleton" style={{ width: '75%', height: 12 }}/>
+      </div>
+      <div className="skeleton" style={{ width: 28, height: 12, borderRadius: 4 }}/>
+    </div>
+  )
+}
+
 function ago(d: string) {
   const m = Math.floor((Date.now() - new Date(d).getTime()) / 60000)
   if (m < 1)  return 'сейчас'
@@ -93,13 +106,13 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
               <p style={{ color: '#9498AB', fontSize: 14 }}>Напиши продавцу из ленты</p>
             </div>
           ) : (
-            <div style={{ background: '#fff' }}>
+            <div className="stagger" style={{ background: '#fff' }}>
               {chats.map(chat => {
                 const partner = chat.buyer_id === currentUserId ? chat.seller : chat.buyer
                 const pName   = partner?.name ?? 'Продавец'
                 return (
-                  <Link key={chat.id} href={`/chat/${chat.id}`}
-                    style={{ display: 'block', textDecoration: 'none' }}>
+                  <Link key={chat.id} href={`/chat/${chat.id}`} className='press-card'
+                    className="press-card" style={{ display: 'block', textDecoration: 'none' }}>
                     <div style={{
                       display: 'flex', alignItems: 'center', gap: 12,
                       padding: '12px 16px', borderBottom: '1px solid #F0F1F4',
@@ -156,10 +169,10 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
               </Link>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {rooms.map(room => (
                 <Link key={room.id} href={`/rooms/${room.id}`}
-                  style={{ textDecoration: 'none' }}>
+                  className="press-card" style={{ textDecoration: 'none' }}>
                   <div className="card-press" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{
                       width: 46, height: 46, borderRadius: 14, flexShrink: 0,
