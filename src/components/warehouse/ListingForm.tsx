@@ -1,17 +1,22 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Listing, ListingTemplate } from '@/types'
 import BarcodeScanner, { type ScanResult } from '@/components/scanner/BarcodeScanner'
-import SerialNumberInput, { type SerialEntry } from '@/components/scanner/SerialNumberInput'
 import { lookupProduct, type ProductData } from '@/lib/api/upc'
 
 type FormData = {
   title: string; brand: string; model: string; condition: 'new' | 'used'
   price: string; quantity: string; cost_price: string; min_stock: string
   description: string; tags: string; upc: string
+}
+
+// Одна запись серийного номера
+type SerialEntry = {
+  serial_number: string
+  imei: string
 }
 
 const EMPTY: FormData = {
@@ -41,11 +46,21 @@ function calcMargin(price: number, cost: number) {
   return Math.round(((price - cost) / price) * 100)
 }
 
+// Определяем тип сканирования по значению
+function detectScanType(value: string): 'imei' | 'serial' | 'upc' {
+  const digits = value.replace(/\D/g, '')
+  if (digits.length === 15) return 'imei'        // IMEI — 15 цифр
+  if (/^\d{8,14}$/.test(value)) return 'upc'     // UPC/EAN — только цифры 8-14 символов
+  return 'serial'                                  // Всё остальное — серийник
+}
+
 const LABEL: React.CSSProperties = {
   display: 'block', fontSize: 12, fontWeight: 600,
   color: '#9498AB', marginBottom: 6,
   textTransform: 'uppercase', letterSpacing: '0.04em',
 }
+
+type ScanMode = 'upc' | 'serial' | 'imei' | null
 
 type Props = {
   listing?: Listing
@@ -55,38 +70,58 @@ type Props = {
 
 export default function ListingForm({ listing, template, showSaveAsTemplate = true }: Props) {
   const router = useRouter()
-  const [form, setForm]   = useState<FormData>(
+  const [form, setForm] = useState<FormData>(
     listing ? toForm(listing) : template ? toForm(template.data) : EMPTY
   )
-  const [saving, setSaving]         = useState(false)
-  const [error, setError]           = useState<string | null>(null)
-  const [saveAsTpl, setSaveAsTpl]   = useState(false)
-  const [tplName, setTplName]       = useState('')
+  const [saving, setSaving]       = useState(false)
+  const [error, setError]         = useState<string | null>(null)
+  const [saveAsTpl, setSaveAsTpl] = useState(false)
+  const [tplName, setTplName]     = useState('')
 
-  // Сканер
-  const [showScanner, setShowScanner]   = useState(false)
-  const [scanning, setScanning]         = useState(false)  // идёт поиск по API
-  const [scannedProduct, setScannedProduct] = useState<ProductData | null>(null)
+  // UPC сканер + продукт
+  const [scanMode, setScanMode]               = useState<ScanMode>(null)
+  const [scanning, setScanning]               = useState(false)
+  const [scannedProduct, setScannedProduct]   = useState<ProductData | null>(null)
 
-  // Серийные номера
-  const [serialEntries, setSerialEntries] = useState<SerialEntry[]>([])
-  const isSmartphone = ['apple', 'samsung', 'xiaomi', 'huawei', 'google'].includes(
-    form.brand.toLowerCase()
+  // Серийные номера — массив для партии
+  const qty = Math.max(1, Number(form.quantity) || 1)
+  const [serials, setSerials] = useState<SerialEntry[]>(() =>
+    Array.from({ length: qty }, () => ({ serial_number: '', imei: '' }))
   )
+  // Индекс для которого сейчас сканируем S/N или IMEI
+  const [scanIdx, setScanIdx] = useState<number | null>(null)
+
+  // Refs для авто-фокуса после сканирования
+  const snRefs   = useRef<(HTMLInputElement | null)[]>([])
+  const imeiRefs = useRef<(HTMLInputElement | null)[]>([])
+
+  const isSmartphone = ['apple', 'samsung', 'xiaomi', 'huawei', 'google', 'nothing']
+    .includes(form.brand.toLowerCase())
+
+  // Синхронизируем размер массива serials с количеством
+  useEffect(() => {
+    setSerials(prev => {
+      const newLen = Math.max(1, Number(form.quantity) || 1)
+      if (prev.length === newLen) return prev
+      if (prev.length < newLen) {
+        return [...prev, ...Array.from({ length: newLen - prev.length }, () => ({ serial_number: '', imei: '' }))]
+      }
+      return prev.slice(0, newLen)
+    })
+  }, [form.quantity])
 
   function f<K extends keyof FormData>(k: K, v: FormData[K]) {
     setForm(p => ({ ...p, [k]: v }))
   }
 
-  const margin = form.price && form.cost_price
-    ? calcMargin(Number(form.price), Number(form.cost_price))
-    : null
+  function updateSerial(idx: number, field: keyof SerialEntry, value: string) {
+    setSerials(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s))
+  }
 
-  // Обработка результата сканирования
-  const handleScan = useCallback(async (result: ScanResult) => {
-    setShowScanner(false)
+  // ── UPC сканирование ────────────────────────────────────
+  const handleUPCScan = useCallback(async (result: ScanResult) => {
+    setScanMode(null)
     setScanning(true)
-
     f('upc', result.value)
 
     const supabase = createClient()
@@ -103,12 +138,56 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
         description: product.description ?? p.description,
       }))
     } else {
-      // Не найдено — только UPC заполнен
       setForm(p => ({ ...p, upc: result.value }))
     }
 
     setScanning(false)
+
+    // После UPC → автоматически фокус на первый S/N
+    setTimeout(() => {
+      snRefs.current[0]?.focus()
+      snRefs.current[0]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 300)
   }, [])
+
+  // ── Сканирование S/N или IMEI ───────────────────────────
+  const handleSerialScan = useCallback((result: ScanResult, idx: number) => {
+    setScanMode(null)
+    setScanIdx(null)
+
+    const detected = detectScanType(result.value)
+
+    if (detected === 'imei') {
+      // Отсканировали IMEI
+      updateSerial(idx, 'imei', result.value)
+      // Фокус на следующий S/N если есть
+      setTimeout(() => {
+        const next = idx + 1
+        if (next < qty) {
+          snRefs.current[next]?.focus()
+        }
+      }, 100)
+    } else {
+      // Отсканировали S/N
+      updateSerial(idx, 'serial_number', result.value)
+      // Если смартфон — фокус на IMEI этого же устройства
+      if (isSmartphone) {
+        setTimeout(() => imeiRefs.current[idx]?.focus(), 100)
+      } else {
+        // Иначе — следующий S/N
+        setTimeout(() => {
+          const next = idx + 1
+          if (next < qty) snRefs.current[next]?.focus()
+        }, 100)
+      }
+    }
+  }, [qty, isSmartphone])
+
+  const margin = form.price && form.cost_price
+    ? calcMargin(Number(form.price), Number(form.cost_price))
+    : null
+
+  const filledSerials = serials.filter(s => s.serial_number || s.imei).length
 
   async function save(e: React.FormEvent) {
     e.preventDefault()
@@ -136,31 +215,34 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
     let listingId: string
 
     if (listing) {
-      const { data, error } = await supabase
-        .from('listings').update(payload).eq('id', listing.id).select('id').single()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase.from('listings') as any)
+        .update(payload).eq('id', listing.id).select('id').single()
       if (error) { setError('Ошибка сохранения'); setSaving(false); return }
       listingId = data.id
     } else {
-      const { data, error } = await supabase
-        .from('listings').insert({ ...payload, seller_id: user.id }).select('id').single()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase.from('listings') as any)
+        .insert({ ...payload, seller_id: user.id }).select('id').single()
       if (error) { setError('Ошибка сохранения'); setSaving(false); return }
       listingId = data.id
     }
 
-    // Сохраняем серийные номера
-    const validSerials = serialEntries.filter(e => e.serial_number || e.imei)
-    if (validSerials.length > 0) {
-      await supabase.from('serial_items').insert(
-        validSerials.map(e => ({
-          listing_id:    listingId,
-          serial_number: e.serial_number || null,
-          imei:          e.imei || null,
-          acquired_price: form.cost_price ? Number(form.cost_price) : null,
-        }))
-      )
+    // Серийные номера — только если не режим редактирования
+    if (!listing) {
+      const validSerials = serials.filter(s => s.serial_number || s.imei)
+      if (validSerials.length > 0) {
+        await supabase.from('serial_items').insert(
+          validSerials.map(s => ({
+            listing_id:     listingId,
+            serial_number:  s.serial_number || null,
+            imei:           s.imei || null,
+            acquired_price: form.cost_price ? Number(form.cost_price) : null,
+          }))
+        )
+      }
     }
 
-    // Шаблон
     if (saveAsTpl && tplName.trim()) {
       await supabase.from('listing_templates').insert({
         seller_id: user.id, name: tplName.trim(), data: payload,
@@ -181,70 +263,53 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
 
         {/* ── UPC Сканер ── */}
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-            <button type="button" onClick={() => setShowScanner(true)}
-              disabled={scanning}
-              style={{
-                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-                padding: '14px', borderRadius: 14,
-                background: scannedProduct ? '#E6F9F3' : '#1E6FEB',
-                border: scannedProduct ? '1.5px solid #00B173' : 'none',
-                color: scannedProduct ? '#006644' : '#fff',
-                fontSize: 15, fontWeight: 700, cursor: 'pointer',
-                transition: 'all 0.15s',
-              }}>
-              {scanning ? (
-                <>
-                  <div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.4)', borderTop: '2px solid #fff', borderRadius: '50%', animation: 'spin 1s linear infinite' }}/>
-                  Ищем в базе...
-                </>
-              ) : scannedProduct ? (
-                <>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#006644" strokeWidth="2.5">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                  Найдено: {scannedProduct.source === 'internal' ? 'в каталоге Dexa' : 'в базе товаров'}
-                </>
-              ) : (
-                <>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                    <path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"/>
-                    <rect x="7" y="7" width="10" height="10" rx="1"/>
-                  </svg>
-                  Сканировать штрихкод
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Результат сканирования */}
-          {scannedProduct && (
-            <div style={{
-              background: '#F8F9FF', borderRadius: 12, padding: '10px 14px',
-              border: '1px solid #E0E8FF', display: 'flex', alignItems: 'center', gap: 10,
+          <button type="button"
+            onClick={() => setScanMode('upc')}
+            disabled={scanning}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              padding: '14px', borderRadius: 14,
+              background: scannedProduct ? '#E6F9F3' : '#1E6FEB',
+              border: scannedProduct ? '1.5px solid #00B173' : 'none',
+              color: scannedProduct ? '#006644' : '#fff',
+              fontSize: 15, fontWeight: 700, cursor: 'pointer',
+              transition: 'all 0.15s',
             }}>
+            {scanning ? (
+              <>
+                <div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.4)', borderTop: '2px solid #fff', borderRadius: '50%', animation: 'spin 1s linear infinite' }}/>
+                Ищем товар в базе...
+              </>
+            ) : scannedProduct ? (
+              <>✓ Найдено: {scannedProduct.source === 'internal' ? 'каталог Dexa' : 'база товаров'}</>
+            ) : (
+              <>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                  <path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"/>
+                  <rect x="7" y="7" width="10" height="10" rx="1"/>
+                </svg>
+                1. Сканировать штрихкод (UPC)
+              </>
+            )}
+          </button>
+
+          {scannedProduct && (
+            <div style={{ background: '#F8F9FF', borderRadius: 12, padding: '10px 14px', border: '1px solid #E0E8FF', display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
               {scannedProduct.image_url && (
-                <img src={scannedProduct.image_url} alt="" style={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 8, flexShrink: 0 }} />
+                <img src={scannedProduct.image_url} alt="" style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 8, flexShrink: 0 }} />
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {scannedProduct.title}
                 </p>
                 <p style={{ fontSize: 11, color: '#9498AB', fontFamily: 'var(--font-mono)', marginTop: 1 }}>
-                  UPC: {form.upc}
-                  {scannedProduct.brand && ` · ${scannedProduct.brand}`}
+                  UPC: {form.upc}{scannedProduct.brand && ` · ${scannedProduct.brand}`}
                 </p>
               </div>
-              <button type="button" onClick={() => { setScannedProduct(null); f('upc', '') }} style={{
-                background: 'none', border: 'none', cursor: 'pointer', color: '#9498AB', fontSize: 18, flexShrink: 0,
-              }}>×</button>
+              <button type="button" onClick={() => { setScannedProduct(null); f('upc', '') }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9498AB', fontSize: 18 }}>×
+              </button>
             </div>
-          )}
-
-          {form.upc && !scannedProduct && !scanning && (
-            <p style={{ fontSize: 11, color: '#9498AB', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
-              UPC: {form.upc} · Не найден в базе — заполни вручную
-            </p>
           )}
         </div>
 
@@ -276,8 +341,7 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
                 padding: '12px', borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: 'pointer',
                 border: form.condition === c ? '2px solid #1E6FEB' : '1.5px solid #E0E1E6',
                 background: form.condition === c ? '#EBF2FF' : '#fff',
-                color: form.condition === c ? '#1249A8' : '#5A5E72',
-                transition: 'all 0.12s',
+                color: form.condition === c ? '#1249A8' : '#5A5E72', transition: 'all 0.12s',
               }}>
                 {c === 'new' ? '✨ Новый' : '🔄 Б/У'}
               </button>
@@ -295,17 +359,139 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
           <div>
             <label style={LABEL}>Кол-во *</label>
             <input type="number" value={form.quantity} onChange={e => f('quantity', e.target.value)}
-              placeholder="1" required min={0} className="input" />
+              placeholder="1" required min={1} className="input" />
           </div>
         </div>
 
-        {/* Серийные номера */}
-        {Number(form.quantity) > 0 && (
-          <SerialNumberInput
-            quantity={Number(form.quantity)}
-            onChange={setSerialEntries}
-            isSmartphone={isSmartphone}
-          />
+        {/* ── Серийные номера — только при создании ── */}
+        {!listing && (
+          <div style={{ background: '#F8F9FF', borderRadius: 14, padding: '14px', border: '1px solid #E0E8FF' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <p style={{ fontSize: 12, fontWeight: 700, color: '#1249A8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                2. Серийные номера
+              </p>
+              {/* Прогресс */}
+              {qty > 0 && (
+                <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: filledSerials === qty ? '#006644' : '#9498AB', fontWeight: 700 }}>
+                  {filledSerials}/{qty}
+                </span>
+              )}
+            </div>
+
+            {/* Прогресс-бар */}
+            {qty > 1 && (
+              <div style={{ height: 3, background: '#E0E8FF', borderRadius: 2, marginBottom: 12, overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: filledSerials === qty ? '#00B173' : '#1E6FEB', width: `${(filledSerials / qty) * 100}%`, transition: 'width 0.3s ease', borderRadius: 2 }}/>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {serials.map((entry, idx) => (
+                <div key={idx} style={{
+                  background: '#fff', borderRadius: 12, padding: '12px',
+                  border: `1.5px solid ${entry.serial_number || entry.imei ? '#1E6FEB' : '#E0E1E6'}`,
+                  transition: 'border-color 0.15s',
+                }}>
+                  {qty > 1 && (
+                    <p style={{ fontSize: 11, fontWeight: 700, color: '#1249A8', marginBottom: 8 }}>
+                      Единица {idx + 1} из {qty}
+                    </p>
+                  )}
+
+                  {/* S/N строка */}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: isSmartphone ? 8 : 0 }}>
+                    <input
+                      ref={el => { snRefs.current[idx] = el }}
+                      value={entry.serial_number}
+                      onChange={e => updateSerial(idx, 'serial_number', e.target.value)}
+                      placeholder="Серийный номер (напр. JTCWH5YW30)"
+                      style={{
+                        flex: 1, background: '#F8F9FF',
+                        border: '1.5px solid #E0E1E6', borderRadius: 10,
+                        padding: '10px 12px', fontSize: 13, color: '#1A1C21',
+                        outline: 'none', fontFamily: 'var(--font-mono)',
+                        transition: 'border-color 0.15s',
+                      }}
+                      onFocus={e => { e.target.style.borderColor = '#1E6FEB' }}
+                      onBlur={e => { e.target.style.borderColor = '#E0E1E6' }}
+                    />
+                    {/* Кнопка скан S/N */}
+                    <button type="button"
+                      onClick={() => { setScanIdx(idx); setScanMode('serial') }}
+                      style={{
+                        width: 44, height: 44, borderRadius: 10, flexShrink: 0,
+                        background: '#EBF2FF', border: 'none', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E6FEB" strokeWidth="2">
+                        <path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"/>
+                        <rect x="7" y="7" width="10" height="10" rx="1"/>
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* IMEI — только для смартфонов */}
+                  {isSmartphone && (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        ref={el => { imeiRefs.current[idx] = el }}
+                        value={entry.imei}
+                        onChange={e => {
+                          const v = e.target.value.replace(/\D/g, '').slice(0, 15)
+                          updateSerial(idx, 'imei', v)
+                        }}
+                        placeholder="IMEI (15 цифр, опционально)"
+                        maxLength={15}
+                        inputMode="numeric"
+                        style={{
+                          flex: 1, background: '#F8F9FF',
+                          border: `1.5px solid ${entry.imei && entry.imei.length !== 15 ? '#F5A623' : '#E0E1E6'}`,
+                          borderRadius: 10, padding: '10px 12px',
+                          fontSize: 13, color: '#1A1C21', outline: 'none',
+                          fontFamily: 'var(--font-mono)', transition: 'border-color 0.15s',
+                        }}
+                        onFocus={e => { e.target.style.borderColor = '#1E6FEB' }}
+                        onBlur={e => { e.target.style.borderColor = entry.imei && entry.imei.length !== 15 ? '#F5A623' : '#E0E1E6' }}
+                      />
+                      {/* Кнопка скан IMEI */}
+                      <button type="button"
+                        onClick={() => { setScanIdx(idx); setScanMode('imei') }}
+                        style={{
+                          width: 44, height: 44, borderRadius: 10, flexShrink: 0,
+                          background: '#F0E8FF', border: 'none', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5B00CC" strokeWidth="2">
+                          <path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"/>
+                          <rect x="7" y="7" width="10" height="10" rx="1"/>
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Статус */}
+                  {(entry.serial_number || entry.imei) && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                      {entry.serial_number && (
+                        <span style={{ fontSize: 10, background: '#EBF2FF', color: '#1249A8', borderRadius: 5, padding: '2px 8px', fontFamily: 'var(--font-mono)' }}>
+                          S/N: {entry.serial_number}
+                        </span>
+                      )}
+                      {entry.imei && (
+                        <span style={{ fontSize: 10, background: '#F0E8FF', color: '#5B00CC', borderRadius: 5, padding: '2px 8px', fontFamily: 'var(--font-mono)' }}>
+                          IMEI: {entry.imei}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <p style={{ fontSize: 11, color: '#9498AB', marginTop: 10 }}>
+              После сканирования UPC — поле S/N получит фокус автоматически
+            </p>
+          </div>
         )}
 
         {/* Себестоимость + мин. остаток */}
@@ -369,13 +555,25 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
         </button>
       </form>
 
-      {/* Сканер оверлей */}
-      {showScanner && (
+      {/* ── Сканер UPC ── */}
+      {scanMode === 'upc' && (
         <BarcodeScanner
           mode="upc"
           hint="Наведи на штрихкод коробки или товара"
-          onScan={handleScan}
-          onClose={() => setShowScanner(false)}
+          onScan={handleUPCScan}
+          onClose={() => setScanMode(null)}
+        />
+      )}
+
+      {/* ── Сканер S/N или IMEI ── */}
+      {(scanMode === 'serial' || scanMode === 'imei') && scanIdx !== null && (
+        <BarcodeScanner
+          mode="serial"
+          hint={scanMode === 'imei'
+            ? 'Наведи на штрихкод IMEI (на коробке или под батареей)'
+            : 'Наведи на серийный номер на коробке или устройстве'}
+          onScan={r => handleSerialScan(r, scanIdx)}
+          onClose={() => { setScanMode(null); setScanIdx(null) }}
         />
       )}
 
