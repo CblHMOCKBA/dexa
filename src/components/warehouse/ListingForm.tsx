@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Listing, ListingTemplate } from '@/types'
 import BarcodeScanner, { type ScanResult } from '@/components/scanner/BarcodeScanner'
+import SerialScanner from '@/components/scanner/SerialScanner'
 import { lookupProduct, type ProductData } from '@/lib/api/upc'
 
 type FormData = {
@@ -565,13 +566,24 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
         />
       )}
 
-      {/* ── Сканер S/N или IMEI ── */}
-      {(scanMode === 'serial' || scanMode === 'imei') && scanIdx !== null && (
+      {/* ── Сканер S/N — OCR фото ── */}
+      {scanMode === 'serial' && scanIdx !== null && (
+        <SerialScanner
+          onScan={value => {
+            const idx = scanIdx
+            setScanMode(null)
+            setScanIdx(null)
+            handleSerialScan({ type: 'serial', value, format: 'ocr' }, idx)
+          }}
+          onClose={() => { setScanMode(null); setScanIdx(null) }}
+        />
+      )}
+
+      {/* ── Сканер IMEI — штрихкод ── */}
+      {scanMode === 'imei' && scanIdx !== null && (
         <BarcodeScanner
-          mode="serial"
-          hint={scanMode === 'imei'
-            ? 'Наведи на штрихкод IMEI (на коробке или под батареей)'
-            : 'Наведи на серийный номер на коробке или устройстве'}
+          mode="imei"
+          hint="Наведи на штрихкод IMEI/MEID на коробке"
           onScan={r => handleSerialScan(r, scanIdx)}
           onClose={() => { setScanMode(null); setScanIdx(null) }}
         />
