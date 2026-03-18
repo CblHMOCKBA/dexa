@@ -3,16 +3,44 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 
 export type ScanResult = {
-  type: 'upc' | 'qr' | 'serial'
+  type: 'upc' | 'serial' | 'imei'
   value: string
   format: string
 }
 
+type Mode = 'upc' | 'serial' | 'imei' | 'any'
+
 type Props = {
   onScan: (result: ScanResult) => void
   onClose: () => void
-  mode?: 'upc' | 'serial' | 'any'
+  mode?: Mode
   hint?: string
+}
+
+// Классифицируем отсканированное значение
+function classify(raw: string): ScanResult['type'] | null {
+  const clean = raw.trim()
+
+  // IMEI — ровно 15 цифр
+  if (/^\d{15}$/.test(clean)) return 'imei'
+
+  // UPC/EAN — только цифры 8-14 символов
+  if (/^\d{8,14}$/.test(clean)) return 'upc'
+
+  // Серийник Apple — буквы + цифры, 8-15 символов
+  // JTCWH5YW30 — 10 символов, заглавные буквы и цифры
+  if (/^[A-Z0-9]{8,15}$/.test(clean) && /[A-Z]/.test(clean) && /\d/.test(clean)) return 'serial'
+
+  // Серийник в нижнем регистре тоже принимаем
+  if (/^[a-zA-Z0-9]{8,15}$/.test(clean) && /[a-zA-Z]/.test(clean) && /\d/.test(clean)) return 'serial'
+
+  return null
+}
+
+// Подходит ли результат для текущего режима
+function matchesMode(type: ScanResult['type'], mode: Mode): boolean {
+  if (mode === 'any') return true
+  return type === mode
 }
 
 export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: Props) {
@@ -25,26 +53,30 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
   const [status, setStatus]     = useState<'loading' | 'scanning' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState('')
   const [torchOn, setTorchOn]   = useState(false)
+  const [debugText, setDebugText] = useState<string>('')
 
-  const handleResult = useCallback((value: string, format: string) => {
+  const handleResult = useCallback((raw: string, format: string) => {
     if (scannedRef.current) return
+
+    const clean = raw.trim().toUpperCase()
+    const type  = classify(clean)
+
+    // Показываем дебаг что считали
+    setDebugText(`${clean} → ${type ?? 'игнор'}`)
+
+    if (!type || !matchesMode(type, mode)) return
+
     scannedRef.current = true
     if ('vibrate' in navigator) navigator.vibrate(120)
-
-    let type: ScanResult['type'] = 'upc'
-    if (format.toLowerCase().includes('qr') || format.toLowerCase().includes('data_matrix')) {
-      type = mode === 'serial' ? 'serial' : 'qr'
-    } else if (mode === 'serial') {
-      type = 'serial'
-    }
-    onScan({ type, value, format })
+    onScan({ type, value: clean, format })
   }, [mode, onScan])
 
   useEffect(() => {
     let stopped = false
+    scannedRef.current = false
+    setDebugText('')
 
     async function start() {
-      // 1. Запускаем камеру
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -66,7 +98,6 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
         return
       }
 
-      // 2. Пробуем @zxing — работает на iPhone/Android/Desktop
       try {
         const [{ BrowserMultiFormatReader }, zxingLib] = await Promise.all([
           import('@zxing/browser'),
@@ -74,18 +105,38 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
         ])
 
         const { DecodeHintType, BarcodeFormat } = zxingLib
-
         const hints = new Map()
-        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-          BarcodeFormat.EAN_13,
-          BarcodeFormat.EAN_8,
-          BarcodeFormat.UPC_A,
-          BarcodeFormat.UPC_E,
-          BarcodeFormat.CODE_128,
-          BarcodeFormat.CODE_39,
-          BarcodeFormat.QR_CODE,
-          BarcodeFormat.DATA_MATRIX,
-        ])
+
+        // Для UPC — только штрихкоды с цифрами
+        // Для serial/imei — Code128 (Apple использует именно его для S/N и IMEI)
+        // Для any — всё
+        if (mode === 'upc') {
+          hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+            BarcodeFormat.EAN_13,
+            BarcodeFormat.EAN_8,
+            BarcodeFormat.UPC_A,
+            BarcodeFormat.UPC_E,
+          ])
+        } else if (mode === 'serial' || mode === 'imei') {
+          hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+            BarcodeFormat.CODE_128,  // Apple использует Code-128 для S/N и IMEI
+            BarcodeFormat.CODE_39,
+            BarcodeFormat.QR_CODE,
+            BarcodeFormat.DATA_MATRIX,
+          ])
+        } else {
+          hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+            BarcodeFormat.EAN_13,
+            BarcodeFormat.EAN_8,
+            BarcodeFormat.UPC_A,
+            BarcodeFormat.UPC_E,
+            BarcodeFormat.CODE_128,
+            BarcodeFormat.CODE_39,
+            BarcodeFormat.QR_CODE,
+            BarcodeFormat.DATA_MATRIX,
+          ])
+        }
+
         hints.set(DecodeHintType.TRY_HARDER, true)
 
         const reader = new BrowserMultiFormatReader(hints)
@@ -93,23 +144,27 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
 
         if (!videoRef.current || stopped) return
 
-        reader.decodeFromVideoElement(videoRef.current, (result, err) => {
+        reader.decodeFromVideoElement(videoRef.current, (result) => {
           if (stopped || scannedRef.current) return
           if (result) {
             handleResult(result.getText(), result.getBarcodeFormat().toString())
           }
         })
-        return // @zxing запущен — выходим
+        return
       } catch (e) {
-        console.warn('@zxing failed, trying BarcodeDetector', e)
+        console.warn('@zxing failed', e)
       }
 
-      // 3. Fallback: нативный BarcodeDetector (Chrome Android)
+      // Fallback: нативный BarcodeDetector
       if ('BarcodeDetector' in window) {
         type BDType = { detect: (v: HTMLVideoElement) => Promise<Array<{ rawValue: string; format: string }>> }
-        const detector = new (window as unknown as { BarcodeDetector: new (o: object) => BDType }).BarcodeDetector({
-          formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'qr_code'],
-        })
+        const fmts = mode === 'upc'
+          ? ['ean_13', 'ean_8', 'upc_a', 'upc_e']
+          : mode === 'serial' || mode === 'imei'
+          ? ['code_128', 'code_39', 'qr_code']
+          : ['ean_13', 'ean_8', 'upc_a', 'code_128', 'qr_code']
+
+        const detector = new (window as unknown as { BarcodeDetector: new (o: object) => BDType }).BarcodeDetector({ formats: fmts })
 
         const scan = async () => {
           if (stopped || scannedRef.current) return
@@ -117,32 +172,23 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
           if (v && v.readyState >= 2) {
             try {
               const codes = await detector.detect(v)
-              if (codes.length > 0) {
-                handleResult(codes[0].rawValue, codes[0].format)
-                return
-              }
+              if (codes.length > 0) handleResult(codes[0].rawValue, codes[0].format)
             } catch {}
           }
           animRef.current = requestAnimationFrame(scan)
         }
         animRef.current = requestAnimationFrame(scan)
-        return
       }
-
-      // 4. Ничего не работает — только ручной ввод
-      // Камера всё равно показывается, просто без авто-распознавания
-      console.warn('No barcode scanner available, manual input only')
     }
 
     start()
-
     return () => {
       stopped = true
       cancelAnimationFrame(animRef.current)
       streamRef.current?.getTracks().forEach(t => t.stop())
       try { readerRef.current?.reset() } catch {}
     }
-  }, [handleResult])
+  }, [handleResult, mode])
 
   async function toggleTorch() {
     const track = streamRef.current?.getVideoTracks()[0]
@@ -153,9 +199,16 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
     } catch {}
   }
 
-  const hintText = hint ?? (mode === 'serial'
-    ? 'Наведи на серийный номер или QR'
-    : 'Наведи на штрихкод товара')
+  const labels: Record<Mode, { title: string; hint: string; example: string; wide: boolean }> = {
+    upc:    { title: 'UPC / EAN',        hint: 'Штрихкод JAN справа на коробке',               example: '4549995649284', wide: true  },
+    serial: { title: 'Серийный номер',   hint: 'Штрихкод под надписью (S) Serial No.',          example: 'JTCWH5YW30',   wide: false },
+    imei:   { title: 'IMEI',             hint: 'Штрихкод под надписью IMEI/MEID',                example: '350949819943691', wide: true },
+    any:    { title: 'Сканер',           hint: 'Наведи на штрихкод',                            example: '',             wide: true  },
+  }
+
+  const lbl = labels[mode]
+  const frameW = lbl.wide ? 280 : 200
+  const frameH = lbl.wide ? 100 : 200
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: '#000', display: 'flex', flexDirection: 'column' }}>
@@ -177,9 +230,11 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
         </button>
         <div style={{ flex: 1 }}>
           <p style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>
-            {mode === 'serial' ? 'Серийный номер' : 'Сканер штрихкода'}
+            Сканер · <span style={{ color: '#F0B90B' }}>{lbl.title}</span>
           </p>
-          <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 }}>{hintText}</p>
+          <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 }}>
+            {hint ?? lbl.hint}
+          </p>
         </div>
         <button onClick={toggleTorch} style={{
           width: 40, height: 40, borderRadius: 12,
@@ -199,30 +254,50 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           muted playsInline autoPlay />
 
-        {/* Прицел */}
         {status === 'scanning' && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {/* Затемнение */}
             <div style={{
               position: 'absolute', inset: 0,
-              background: 'rgba(0,0,0,0.45)',
-              maskImage: 'radial-gradient(ellipse 260px 120px at center, transparent 0%, black 100%)',
-              WebkitMaskImage: 'radial-gradient(ellipse 260px 120px at center, transparent 0%, black 100%)',
+              background: 'rgba(0,0,0,0.5)',
+              maskImage: `radial-gradient(ellipse ${frameW}px ${frameH}px at center, transparent 0%, black 100%)`,
+              WebkitMaskImage: `radial-gradient(ellipse ${frameW}px ${frameH}px at center, transparent 0%, black 100%)`,
             }}/>
-            <div style={{ position: 'relative', width: 260, height: 120 }}>
+
+            {/* Рамка прицела */}
+            <div style={{ position: 'relative', width: frameW, height: frameH }}>
               {[
-                { top: 0, left: 0, borderTop: '3px solid #F0B90B', borderLeft: '3px solid #F0B90B', borderRadius: '4px 0 0 0' },
-                { top: 0, right: 0, borderTop: '3px solid #F0B90B', borderRight: '3px solid #F0B90B', borderRadius: '0 4px 0 0' },
-                { bottom: 0, left: 0, borderBottom: '3px solid #F0B90B', borderLeft: '3px solid #F0B90B', borderRadius: '0 0 0 4px' },
+                { top: 0,  left: 0,  borderTop: '3px solid #F0B90B',    borderLeft: '3px solid #F0B90B',   borderRadius: '4px 0 0 0' },
+                { top: 0,  right: 0, borderTop: '3px solid #F0B90B',    borderRight: '3px solid #F0B90B',  borderRadius: '0 4px 0 0' },
+                { bottom: 0, left: 0,  borderBottom: '3px solid #F0B90B', borderLeft: '3px solid #F0B90B',  borderRadius: '0 0 0 4px' },
                 { bottom: 0, right: 0, borderBottom: '3px solid #F0B90B', borderRight: '3px solid #F0B90B', borderRadius: '0 0 4px 0' },
               ].map((s, i) => (
-                <div key={i} style={{ position: 'absolute', width: 24, height: 24, ...s }}/>
+                <div key={i} style={{ position: 'absolute', width: 28, height: 28, ...s }}/>
               ))}
+              {/* Линия сканирования */}
               <div style={{
                 position: 'absolute', left: 0, right: 0, height: 2,
                 background: 'linear-gradient(90deg, transparent, #F0B90B, transparent)',
                 animation: 'scan-line 2s ease-in-out infinite',
               }}/>
             </div>
+
+            {/* Пример значения */}
+            {lbl.example && (
+              <div style={{
+                position: 'absolute',
+                top: `calc(50% + ${frameH / 2 + 16}px)`,
+                left: 0, right: 0, textAlign: 'center',
+              }}>
+                <span style={{
+                  background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.6)',
+                  fontSize: 11, borderRadius: 20, padding: '4px 14px',
+                  fontFamily: 'monospace', letterSpacing: '0.05em',
+                }}>
+                  пример: {lbl.example}
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -237,20 +312,25 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
         {/* Ошибка */}
         {status === 'error' && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 }}>
-            <div style={{ width: 72, height: 72, borderRadius: 24, background: '#FFEBEA', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>
-              📷
-            </div>
+            <div style={{ width: 72, height: 72, borderRadius: 24, background: '#FFEBEA', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>📷</div>
             <p style={{ color: '#fff', fontWeight: 700, fontSize: 17, textAlign: 'center' }}>Нет доступа к камере</p>
-            <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 14, textAlign: 'center', lineHeight: 1.6 }}>
-              {errorMsg}
-            </p>
+            <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 14, textAlign: 'center', lineHeight: 1.6 }}>{errorMsg}</p>
+          </div>
+        )}
+
+        {/* Дебаг — что считалось */}
+        {debugText !== '' && (
+          <div style={{ position: 'absolute', bottom: 12, left: 16, right: 16, textAlign: 'center' }}>
+            <span style={{ background: 'rgba(0,0,0,0.7)', color: 'rgba(255,255,255,0.5)', fontSize: 10, borderRadius: 10, padding: '3px 10px', fontFamily: 'monospace' }}>
+              {debugText}
+            </span>
           </div>
         )}
       </div>
 
       {/* Ручной ввод */}
       <div style={{ background: 'rgba(0,0,0,0.9)', padding: '16px', paddingBottom: 'calc(16px + var(--sab))' }}>
-        <ManualInput mode={mode} onScan={onScan} />
+        <ManualInput mode={mode} onScan={onScan} example={lbl.example} />
       </div>
 
       <style>{`
@@ -266,12 +346,28 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
   )
 }
 
-function ManualInput({ mode, onScan }: { mode: 'upc' | 'serial' | 'any'; onScan: (r: ScanResult) => void }) {
+function ManualInput({ mode, onScan, example }: {
+  mode: Mode
+  onScan: (r: ScanResult) => void
+  example: string
+}) {
   const [value, setValue] = useState('')
+
+  const placeholders: Record<Mode, string> = {
+    upc:    `UPC (напр. ${example || '4549995649284'})`,
+    serial: `S/N (напр. ${example || 'JTCWH5YW30'})`,
+    imei:   `IMEI (напр. ${example || '350949819943691'})`,
+    any:    'Введи значение вручную...',
+  }
 
   function submit() {
     if (!value.trim()) return
-    onScan({ type: mode === 'serial' ? 'serial' : 'upc', value: value.trim(), format: 'manual' })
+    const clean = value.trim().toUpperCase()
+    const type  = classify(clean)
+    const finalType: ScanResult['type'] = (type && matchesMode(type, mode)) ? type
+      : mode === 'any' ? (type ?? 'serial')
+      : mode as ScanResult['type']
+    onScan({ type: finalType, value: clean, format: 'manual' })
     setValue('')
   }
 
@@ -281,11 +377,13 @@ function ManualInput({ mode, onScan }: { mode: 'upc' | 'serial' | 'any'; onScan:
         value={value}
         onChange={e => setValue(e.target.value)}
         onKeyDown={e => e.key === 'Enter' && submit()}
-        placeholder={mode === 'serial' ? 'Введи S/N вручную...' : 'Введи штрихкод...'}
+        placeholder={placeholders[mode]}
+        inputMode={mode === 'upc' || mode === 'imei' ? 'numeric' : 'text'}
+        autoCapitalize="characters"
         style={{
           flex: 1, background: 'rgba(255,255,255,0.1)',
           border: '1.5px solid rgba(255,255,255,0.2)', borderRadius: 12,
-          padding: '12px 16px', color: '#fff', fontSize: 15, outline: 'none',
+          padding: '12px 16px', color: '#fff', fontSize: 14, outline: 'none',
           fontFamily: 'var(--font-mono)',
         }}
       />
