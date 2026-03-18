@@ -121,15 +121,22 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
         )}
 
         {/* Кнопки */}
-        <div style={{ display: 'flex', gap: 10, paddingBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 8, paddingBottom: 10, flexWrap: 'wrap' }}>
           <button onClick={() => setEditing(p => !p)} style={{
-            flex: 1, padding: '10px', borderRadius: 12, fontSize: 14, fontWeight: 600,
+            flex: 1, minWidth: 120, padding: '10px', borderRadius: 12, fontSize: 14, fontWeight: 600,
             border: '1.5px solid #E0E1E6', background: '#fff', color: '#1A1C21', cursor: 'pointer',
           }}>
             {editing ? 'Отмена' : '✏️ Редактировать'}
           </button>
+          <Link href="/analytics" style={{
+            padding: '10px 14px', borderRadius: 12, fontSize: 14, fontWeight: 600,
+            background: '#EBF2FF', color: '#1249A8', textDecoration: 'none',
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            📊 Аналитика
+          </Link>
           <button onClick={logout} style={{
-            padding: '10px 16px', borderRadius: 12, fontSize: 14, fontWeight: 600,
+            padding: '10px 14px', borderRadius: 12, fontSize: 14, fontWeight: 600,
             border: '1.5px solid #FFCDD0', background: '#FFEBEA', color: '#E8251F', cursor: 'pointer',
           }}>
             Выйти
