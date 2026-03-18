@@ -1,6 +1,13 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useState, useCallback } from 'react'
+import dynamic from 'next/dynamic'
+
+// SSR: импортируем только на клиенте
+const Scanner = dynamic(
+  () => import('@yudiel/react-qr-scanner').then(m => m.Scanner),
+  { ssr: false }
+)
 
 export type ScanResult = {
   type: 'upc' | 'serial' | 'imei'
@@ -17,245 +24,185 @@ type Props = {
   hint?: string
 }
 
-// Очищаем и парсим raw значение из сканера
-function parseRaw(raw: string, mode: Mode): { type: ScanResult['type']; value: string } | null {
-  const text = raw.trim()
-
-  // Apple серийник: "(S) JTCWH5YW30" или "S JTCWH5YW30" или просто "JTCWH5YW30"
-  if (mode === 'serial' || mode === 'any') {
-    // Убираем префикс (S) который Apple печатает рядом со штрихкодом
-    const appleMatch = text.match(/^\(S\)\s*([A-Z0-9]{6,20})$/i)
-      || text.match(/^S\s+([A-Z0-9]{6,20})$/i)
-      || text.match(/^([A-Z0-9]{6,20})$/i)
-
-    if (appleMatch) {
-      const sn = appleMatch[1].toUpperCase()
-      // Серийник должен содержать и буквы и цифры
-      if (/[A-Z]/.test(sn) && /\d/.test(sn) && sn.length >= 6 && sn.length <= 20) {
-        return { type: 'serial', value: sn }
-      }
-    }
-  }
+function classifyAndClean(raw: string, mode: Mode): { type: ScanResult['type']; value: string } | null {
+  // Убираем Apple префикс (S)
+  const clean = raw.trim()
+    .replace(/^\(S\)\s*/i, '')
+    .replace(/^S\/N[:\s]*/i, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
 
   // IMEI — ровно 15 цифр
-  if (mode === 'imei' || mode === 'any') {
-    const imeiMatch = text.match(/\d{15}/)
-    if (imeiMatch) return { type: 'imei', value: imeiMatch[0] }
+  if (/^\d{15}$/.test(clean)) {
+    if (mode === 'upc') return null
+    return { type: 'imei', value: clean }
   }
 
-  // UPC/EAN — только цифры 8-14 символов
-  if (mode === 'upc' || mode === 'any') {
-    if (/^\d{8,14}$/.test(text)) return { type: 'upc', value: text }
+  // UPC/EAN — только цифры 8-14
+  if (/^\d{8,14}$/.test(clean)) {
+    if (mode === 'serial' || mode === 'imei') return null
+    return { type: 'upc', value: clean }
+  }
+
+  // Серийник — буквы + цифры 6-15 символов
+  if (/^[A-Z0-9]{6,15}$/.test(clean) && /[A-Z]/.test(clean) && /[0-9]/.test(clean)) {
+    if (mode === 'upc') return null
+    return { type: 'serial', value: clean }
   }
 
   return null
 }
 
 export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: Props) {
-  const videoRef   = useRef<HTMLVideoElement>(null)
-  const streamRef  = useRef<MediaStream | null>(null)
-  const scannedRef = useRef(false)
-  const readerRef  = useRef<{ reset: () => void } | null>(null)
-
-  const [status, setStatus]       = useState<'loading' | 'scanning' | 'error'>('loading')
-  const [errorMsg, setErrorMsg]   = useState('')
-  const [torchOn, setTorchOn]     = useState(false)
+  const [scanned, setScanned]   = useState(false)
   const [debugText, setDebugText] = useState('')
+  const [torchOn, setTorchOn]   = useState(false)
+  const [paused, setPaused]     = useState(false)
+  const [manualValue, setManualValue] = useState('')
 
-  const handleResult = useCallback((raw: string, format: string) => {
-    if (scannedRef.current) return
+  // Форматы зависят от режима
+  const formats = mode === 'upc'
+    ? ['ean_13', 'ean_8', 'upc_a', 'upc_e'] as const
+    : mode === 'serial' || mode === 'imei'
+    ? ['code_128', 'code_39', 'qr_code', 'data_matrix'] as const
+    : ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code', 'data_matrix'] as const
 
-    const parsed = parseRaw(raw.trim(), mode)
-    setDebugText(`"${raw.trim()}" → ${parsed ? parsed.type + ': ' + parsed.value : 'игнор'}`)
-
-    if (!parsed) return
-
-    scannedRef.current = true
-    if ('vibrate' in navigator) navigator.vibrate(120)
-    onScan({ ...parsed, format })
-  }, [mode, onScan])
-
-  useEffect(() => {
-    let stopped = false
-    scannedRef.current = false
-    setDebugText('')
-
-    async function start() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
-        })
-        if (stopped) { stream.getTracks().forEach(t => t.stop()); return }
-        streamRef.current = stream
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          await videoRef.current.play()
-        }
-        setStatus('scanning')
-      } catch {
-        setStatus('error')
-        setErrorMsg('Нет доступа к камере. Разреши доступ в настройках.')
+  const handleScan = useCallback((detectedCodes: Array<{ rawValue: string; format: string }>) => {
+    if (scanned) return
+    for (const code of detectedCodes) {
+      const parsed = classifyAndClean(code.rawValue, mode)
+      setDebugText(`"${code.rawValue}" → ${parsed ? parsed.type + ':' + parsed.value : 'игнор'}`)
+      if (parsed) {
+        setScanned(true)
+        if ('vibrate' in navigator) navigator.vibrate(120)
+        onScan({ ...parsed, format: code.format })
         return
       }
-
-      try {
-        const [{ BrowserMultiFormatReader }, zxingLib] = await Promise.all([
-          import('@zxing/browser'),
-          import('@zxing/library'),
-        ])
-        const { DecodeHintType, BarcodeFormat } = zxingLib
-        const hints = new Map()
-
-        if (mode === 'upc') {
-          hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-            BarcodeFormat.EAN_13, BarcodeFormat.EAN_8,
-            BarcodeFormat.UPC_A,  BarcodeFormat.UPC_E,
-          ])
-        } else {
-          // serial и imei — оба Code-128 на коробке Apple
-          hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-            BarcodeFormat.CODE_128,
-            BarcodeFormat.CODE_39,
-            BarcodeFormat.QR_CODE,
-            BarcodeFormat.DATA_MATRIX,
-            BarcodeFormat.EAN_13,   // на случай any
-          ])
-        }
-        hints.set(DecodeHintType.TRY_HARDER, true)
-
-        const reader = new BrowserMultiFormatReader(hints)
-        readerRef.current = reader as unknown as { reset: () => void }
-        if (!videoRef.current || stopped) return
-
-        reader.decodeFromVideoElement(videoRef.current, (result) => {
-          if (stopped || scannedRef.current) return
-          if (result) handleResult(result.getText(), result.getBarcodeFormat().toString())
-        })
-        return
-      } catch (e) {
-        console.warn('@zxing failed', e)
-      }
-
-      // Fallback BarcodeDetector
-      if ('BarcodeDetector' in window) {
-        type BDType = { detect: (v: HTMLVideoElement) => Promise<Array<{ rawValue: string; format: string }>> }
-        const fmts = mode === 'upc'
-          ? ['ean_13', 'ean_8', 'upc_a', 'upc_e']
-          : ['code_128', 'code_39', 'qr_code', 'ean_13']
-        const detector = new (window as unknown as { BarcodeDetector: new (o: object) => BDType }).BarcodeDetector({ formats: fmts })
-        const scan = async () => {
-          if (stopped || scannedRef.current) return
-          const v = videoRef.current
-          if (v && v.readyState >= 2) {
-            try {
-              const codes = await detector.detect(v)
-              if (codes.length > 0) handleResult(codes[0].rawValue, codes[0].format)
-            } catch {}
-          }
-          requestAnimationFrame(scan)
-        }
-        requestAnimationFrame(scan)
-      }
     }
+  }, [scanned, mode, onScan])
 
-    start()
-    return () => {
-      stopped = true
-      streamRef.current?.getTracks().forEach(t => t.stop())
-      try { readerRef.current?.reset() } catch {}
+  function submitManual() {
+    const parsed = classifyAndClean(manualValue, mode)
+    if (parsed) {
+      onScan({ ...parsed, format: 'manual' })
+    } else if (manualValue.trim().length >= 4) {
+      const type: ScanResult['type'] = mode === 'imei' ? 'imei' : mode === 'upc' ? 'upc' : 'serial'
+      onScan({ type, value: manualValue.trim().toUpperCase(), format: 'manual' })
     }
-  }, [handleResult, mode])
-
-  async function toggleTorch() {
-    const track = streamRef.current?.getVideoTracks()[0]
-    if (!track) return
-    try {
-      await track.applyConstraints({ advanced: [{ torch: !torchOn } as MediaTrackConstraintSet] })
-      setTorchOn(p => !p)
-    } catch {}
   }
 
-  // Конфигурация прицела под каждый режим
   const cfg = {
-    upc:    { title: 'UPC / EAN',      sub: hint ?? 'Штрихкод JAN справа на коробке',          w: 300, h: 90,  ex: '4549995649284'   },
-    serial: { title: 'Серийный номер', sub: hint ?? 'Штрихкод под "(S) Serial No." на коробке', w: 300, h: 90,  ex: 'JTCWH5YW30'      },
-    imei:   { title: 'IMEI',           sub: hint ?? 'Штрихкод под "IMEI/MEID" на коробке',      w: 300, h: 90,  ex: '350949819943691'  },
-    any:    { title: 'Сканер',         sub: hint ?? 'Наведи на штрихкод',                       w: 300, h: 90,  ex: ''                },
+    upc:    { title: 'UPC / EAN',       hint: hint ?? 'Штрихкод JAN на коробке',               ex: '4549995649284'    },
+    serial: { title: 'Серийный номер',  hint: hint ?? 'Штрихкод под "(S) Serial No."',          ex: 'JTCWH5YW30'      },
+    imei:   { title: 'IMEI',            hint: hint ?? 'Штрихкод под "IMEI/MEID"',               ex: '350949819943691'  },
+    any:    { title: 'Сканер',          hint: hint ?? 'Наведи на штрихкод',                     ex: ''                },
   }[mode]
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: '#000', display: 'flex', flexDirection: 'column' }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px', paddingTop: 'calc(16px + var(--sat))', background: 'rgba(0,0,0,0.85)' }}>
-        <button onClick={onClose} style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(255,255,255,0.15)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="m15 18-6-6 6-6"/></svg>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '16px', paddingTop: 'calc(16px + var(--sat))',
+        background: 'rgba(0,0,0,0.85)',
+        flexShrink: 0,
+      }}>
+        <button onClick={onClose} style={{
+          width: 40, height: 40, borderRadius: 12,
+          background: 'rgba(255,255,255,0.15)', border: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+        }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
+            <path d="m15 18-6-6 6-6"/>
+          </svg>
         </button>
         <div style={{ flex: 1 }}>
           <p style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>
             Сканер · <span style={{ color: '#F0B90B' }}>{cfg.title}</span>
           </p>
-          <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 }}>{cfg.sub}</p>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginTop: 2 }}>{cfg.hint}</p>
         </div>
-        <button onClick={toggleTorch} style={{ width: 40, height: 40, borderRadius: 12, background: torchOn ? '#F0B90B' : 'rgba(255,255,255,0.15)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={torchOn ? '#000' : 'white'} strokeWidth="2"><path d="M8 2h8l4 6-8 14L4 8z"/></svg>
+        <button onClick={() => setTorchOn(p => !p)} style={{
+          width: 40, height: 40, borderRadius: 12,
+          background: torchOn ? '#F0B90B' : 'rgba(255,255,255,0.15)',
+          border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={torchOn ? '#000' : 'white'} strokeWidth="2">
+            <path d="M8 2h8l4 6-8 14L4 8z"/>
+          </svg>
         </button>
       </div>
 
-      {/* Камера */}
+      {/* Сканер */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <video ref={videoRef} style={{ width: '100%', height: '100%', objectFit: 'cover' }} muted playsInline autoPlay />
+        <Scanner
+          onScan={handleScan}
+          onError={err => console.warn('Scanner error:', err)}
+          formats={formats as unknown as Parameters<typeof Scanner>[0]['formats']}
+          paused={paused || scanned}
+          constraints={{ facingMode: 'environment' }}
+          components={{
+            torch: false, // управляем сами
+            finder: false, // рисуем свой прицел
+            zoom: false,
+          }}
+          styles={{
+            container: { width: '100%', height: '100%' },
+            video: { width: '100%', height: '100%', objectFit: 'cover' },
+          }}
+        />
 
-        {status === 'scanning' && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {/* Затемнение — узкая горизонтальная полоса для всех режимов */}
+        {/* Наш прицел поверх */}
+        <div style={{
+          position: 'absolute', inset: 0, pointerEvents: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {/* Затемнение */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            maskImage: 'radial-gradient(ellipse 300px 100px at center, transparent 0%, black 100%)',
+            WebkitMaskImage: 'radial-gradient(ellipse 300px 100px at center, transparent 0%, black 100%)',
+          }}/>
+
+          {/* Рамка */}
+          <div style={{ position: 'relative', width: 300, height: 100 }}>
+            {[
+              { top: 0,    left: 0,   borderTop: '3px solid #F0B90B', borderLeft: '3px solid #F0B90B',   borderRadius: '4px 0 0 0' },
+              { top: 0,    right: 0,  borderTop: '3px solid #F0B90B', borderRight: '3px solid #F0B90B',  borderRadius: '0 4px 0 0' },
+              { bottom: 0, left: 0,   borderBottom: '3px solid #F0B90B', borderLeft: '3px solid #F0B90B',   borderRadius: '0 0 0 4px' },
+              { bottom: 0, right: 0,  borderBottom: '3px solid #F0B90B', borderRight: '3px solid #F0B90B',  borderRadius: '0 0 4px 0' },
+            ].map((s, i) => <div key={i} style={{ position: 'absolute', width: 28, height: 28, ...s }}/>)}
+
             <div style={{
-              position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)',
-              maskImage: `radial-gradient(ellipse ${cfg.w}px ${cfg.h}px at center, transparent 0%, black 100%)`,
-              WebkitMaskImage: `radial-gradient(ellipse ${cfg.w}px ${cfg.h}px at center, transparent 0%, black 100%)`,
+              position: 'absolute', left: 0, right: 0, height: 2,
+              background: 'linear-gradient(90deg, transparent, #F0B90B, transparent)',
+              animation: 'scan-line 1.8s ease-in-out infinite',
             }}/>
+          </div>
 
-            {/* Рамка */}
-            <div style={{ position: 'relative', width: cfg.w, height: cfg.h }}>
-              {[
-                { top: 0,    left: 0,   borderTop: '3px solid #F0B90B',    borderLeft: '3px solid #F0B90B',   borderRadius: '4px 0 0 0' },
-                { top: 0,    right: 0,  borderTop: '3px solid #F0B90B',    borderRight: '3px solid #F0B90B',  borderRadius: '0 4px 0 0' },
-                { bottom: 0, left: 0,   borderBottom: '3px solid #F0B90B', borderLeft: '3px solid #F0B90B',   borderRadius: '0 0 0 4px' },
-                { bottom: 0, right: 0,  borderBottom: '3px solid #F0B90B', borderRight: '3px solid #F0B90B',  borderRadius: '0 0 4px 0' },
-              ].map((s, i) => <div key={i} style={{ position: 'absolute', width: 28, height: 28, ...s }}/>)}
-              <div style={{ position: 'absolute', left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, transparent, #F0B90B, transparent)', animation: 'scan-line 1.8s ease-in-out infinite' }}/>
+          {/* Пример */}
+          {cfg.ex && (
+            <div style={{ position: 'absolute', top: 'calc(50% + 66px)', left: 0, right: 0, textAlign: 'center' }}>
+              <span style={{
+                background: 'rgba(0,0,0,0.6)', color: 'rgba(255,255,255,0.45)',
+                fontSize: 11, borderRadius: 20, padding: '4px 14px', fontFamily: 'monospace',
+              }}>
+                {cfg.ex}
+              </span>
             </div>
-
-            {/* Пример */}
-            {cfg.ex && (
-              <div style={{ position: 'absolute', top: `calc(50% + ${cfg.h / 2 + 14}px)`, left: 0, right: 0, textAlign: 'center' }}>
-                <span style={{ background: 'rgba(0,0,0,0.65)', color: 'rgba(255,255,255,0.5)', fontSize: 11, borderRadius: 20, padding: '4px 14px', fontFamily: 'monospace' }}>
-                  {cfg.ex}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {status === 'loading' && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
-            <div style={{ width: 44, height: 44, borderRadius: '50%', border: '3px solid rgba(255,255,255,0.15)', borderTop: '3px solid #F0B90B', animation: 'spin 0.9s linear infinite' }}/>
-            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14 }}>Запуск камеры...</p>
-          </div>
-        )}
-
-        {status === 'error' && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 }}>
-            <div style={{ width: 72, height: 72, borderRadius: 24, background: '#FFEBEA', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>📷</div>
-            <p style={{ color: '#fff', fontWeight: 700, fontSize: 17, textAlign: 'center' }}>Нет доступа к камере</p>
-            <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 14, textAlign: 'center', lineHeight: 1.6 }}>{errorMsg}</p>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Дебаг */}
         {debugText && (
-          <div style={{ position: 'absolute', bottom: 12, left: 16, right: 16, textAlign: 'center' }}>
-            <span style={{ background: 'rgba(0,0,0,0.75)', color: 'rgba(255,255,255,0.55)', fontSize: 10, borderRadius: 10, padding: '3px 12px', fontFamily: 'monospace' }}>
+          <div style={{ position: 'absolute', top: 12, left: 16, right: 16, textAlign: 'center', pointerEvents: 'none' }}>
+            <span style={{
+              background: 'rgba(0,0,0,0.75)', color: 'rgba(255,255,255,0.6)',
+              fontSize: 10, borderRadius: 10, padding: '3px 12px', fontFamily: 'monospace',
+            }}>
               {debugText}
             </span>
           </div>
@@ -263,8 +210,41 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
       </div>
 
       {/* Ручной ввод */}
-      <div style={{ background: 'rgba(0,0,0,0.9)', padding: '16px', paddingBottom: 'calc(16px + var(--sab))' }}>
-        <ManualInput mode={mode} example={cfg.ex} onScan={onScan} />
+      <div style={{
+        background: 'rgba(0,0,0,0.9)', padding: '16px',
+        paddingBottom: 'calc(16px + var(--sab))',
+        flexShrink: 0,
+      }}>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <input
+            value={manualValue}
+            onChange={e => setManualValue(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && submitManual()}
+            placeholder={
+              mode === 'upc' ? `UPC: ${cfg.ex}` :
+              mode === 'imei' ? `IMEI: ${cfg.ex}` :
+              `S/N: ${cfg.ex || 'JTCWH5YW30'}`
+            }
+            inputMode={mode === 'upc' || mode === 'imei' ? 'numeric' : 'text'}
+            autoCapitalize="characters"
+            style={{
+              flex: 1, background: 'rgba(255,255,255,0.1)',
+              border: '1.5px solid rgba(255,255,255,0.2)', borderRadius: 12,
+              padding: '12px 16px', color: '#fff', fontSize: 14, outline: 'none',
+              fontFamily: 'var(--font-mono)',
+            }}
+          />
+          <button onClick={submitManual} disabled={manualValue.trim().length < 4} style={{
+            width: 48, height: 48, borderRadius: 12, flexShrink: 0,
+            background: manualValue.trim().length >= 4 ? '#1E6FEB' : 'rgba(255,255,255,0.1)',
+            border: 'none', cursor: manualValue.trim().length >= 4 ? 'pointer' : 'default',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       <style>{`
@@ -274,52 +254,7 @@ export default function BarcodeScanner({ onScan, onClose, mode = 'any', hint }: 
           90%  { opacity: 1; }
           100% { top: calc(100% - 8px); opacity: 0; }
         }
-        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
-    </div>
-  )
-}
-
-function ManualInput({ mode, example, onScan }: { mode: Mode; example: string; onScan: (r: ScanResult) => void }) {
-  const [value, setValue] = useState('')
-
-  const ph = {
-    upc:    `UPC: ${example || '4549995649284'}`,
-    serial: `S/N: ${example || 'JTCWH5YW30'}`,
-    imei:   `IMEI: ${example || '350949819943691'}`,
-    any:    'Введи значение...',
-  }[mode]
-
-  function submit() {
-    const clean = value.trim().toUpperCase()
-    if (!clean) return
-    const parsed = parseRaw(clean, mode)
-    const type: ScanResult['type'] = parsed?.type ?? (mode === 'any' ? 'serial' : mode as ScanResult['type'])
-    onScan({ type, value: parsed?.value ?? clean, format: 'manual' })
-    setValue('')
-  }
-
-  return (
-    <div style={{ display: 'flex', gap: 10 }}>
-      <input
-        value={value}
-        onChange={e => setValue(e.target.value)}
-        onKeyDown={e => e.key === 'Enter' && submit()}
-        placeholder={ph}
-        inputMode={mode === 'upc' || mode === 'imei' ? 'numeric' : 'text'}
-        autoCapitalize="characters"
-        style={{ flex: 1, background: 'rgba(255,255,255,0.1)', border: '1.5px solid rgba(255,255,255,0.2)', borderRadius: 12, padding: '12px 16px', color: '#fff', fontSize: 14, outline: 'none', fontFamily: 'var(--font-mono)' }}
-      />
-      <button onClick={submit} disabled={!value.trim()} style={{
-        width: 48, height: 48, borderRadius: 12, flexShrink: 0,
-        background: value.trim() ? '#1E6FEB' : 'rgba(255,255,255,0.1)',
-        border: 'none', cursor: value.trim() ? 'pointer' : 'default',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-          <polyline points="9 18 15 12 9 6"/>
-        </svg>
-      </button>
     </div>
   )
 }
