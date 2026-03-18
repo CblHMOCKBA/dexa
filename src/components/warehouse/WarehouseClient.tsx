@@ -1,6 +1,7 @@
 'use client'
 
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
+import PullIndicator from '@/components/ui/PullIndicator'
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
@@ -70,7 +71,7 @@ export default function WarehouseClient({
   initialListings: Listing[]
   initialTemplates: ListingTemplate[]
 }) {
-  const { containerRef, pullDistance, isRefreshing, Indicator } = usePullToRefresh()
+  const { containerRef, pullDistance, isRefreshing, triggered } = usePullToRefresh()
   const router = useRouter()
 
   const [listings, setListings]   = useState<Listing[]>(initialListings)
@@ -249,7 +250,7 @@ export default function WarehouseClient({
     <div ref={containerRef} className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
 
       {/* Header */}
-      <Indicator />
+      <PullIndicator pullDistance={pullDistance} isRefreshing={isRefreshing} triggered={triggered} />
       <div className="page-header pt-safe">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: '#1A1C21' }}>Мой склад</h1>

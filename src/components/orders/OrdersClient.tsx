@@ -1,6 +1,7 @@
 'use client'
 
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
+import PullIndicator from '@/components/ui/PullIndicator'
 
 import Link from 'next/link'
 import type { Order, OrderStatus } from '@/types'
@@ -35,10 +36,10 @@ export default function OrdersClient({
   orders: Order[]
   currentUserId: string
 }) {
-  const { containerRef, pullDistance, isRefreshing, Indicator } = usePullToRefresh()
+  const { containerRef, pullDistance, isRefreshing, triggered } = usePullToRefresh()
   return (
     <div ref={containerRef} className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
-      <Indicator />
+      <PullIndicator pullDistance={pullDistance} isRefreshing={isRefreshing} triggered={triggered} />
       <div className="page-header pt-safe">
         <h1 style={{ fontSize: 20, fontWeight: 700, color: '#1A1C21' }}>Мои сделки</h1>
       </div>

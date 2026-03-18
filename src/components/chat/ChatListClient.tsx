@@ -1,6 +1,7 @@
 'use client'
 
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
+import PullIndicator from '@/components/ui/PullIndicator'
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
@@ -38,7 +39,7 @@ type Props = {
 }
 
 export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
-  const { containerRef, pullDistance, isRefreshing, Indicator } = usePullToRefresh()
+  const { containerRef, pullDistance, isRefreshing, triggered } = usePullToRefresh()
   const [tab, setTab] = useState<'personal' | 'rooms'>('personal')
   const [search, setSearch] = useState('')
 
@@ -62,7 +63,7 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
     <div ref={containerRef} className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
 
       {/* FIX: header фиксированной высоты — не прыгает при смене таба */}
-      <Indicator />
+      <PullIndicator pullDistance={pullDistance} isRefreshing={isRefreshing} triggered={triggered} />
       <div className="page-header pt-safe">
 
         {/* Строка 1: заголовок + кнопка создать (всегда на месте) */}
