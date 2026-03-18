@@ -225,7 +225,6 @@ body {
   .back-btn:active { background: var(--bg-active); transform: scale(0.9); }
 
   /* ── BOTTOM NAV ─────────────────────────────────────────── */
-  .pb-nav { padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px)); }
 
   /* FIX: page-header — фиксированная высота чтобы не прыгал */
   .page-header {
@@ -272,7 +271,7 @@ body {
   .text-price   { font-family: var(--font-mono); font-weight: 600; }
   .text-display { font-family: var(--font-unbounded); font-weight: 700; }
   .text-mono    { font-family: var(--font-mono); }
-  .pb-nav { padding-bottom: calc(90px + var(--sab)); }
+  .pb-nav { padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
   .pt-safe { padding-top: calc(var(--sat) + 12px); }
 }
 

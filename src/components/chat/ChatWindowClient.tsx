@@ -303,7 +303,7 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
 
             {showMenu && (
               <div style={{
-                position: 'absolute', top: 42, right: 0, zIndex: 50,
+                position: 'fixed', top: 'calc(10px + var(--sat) + 52px)', right: 12, zIndex: 100,
                 background: 'white', borderRadius: 16,
                 boxShadow: '0 8px 32px rgba(0,0,0,0.14)',
                 minWidth: 220, overflow: 'hidden',
@@ -334,14 +334,14 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
 
       {/* Backdrop для закрытия меню */}
       {showMenu && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+        <div style={{ position: 'fixed', inset: 0, zIndex: 15 }}
           onClick={() => setShowMenu(false)} />
       )}
 
       {/* Диалог подтверждения */}
       {(menuAction === 'delete' || menuAction === 'clear') && (
         <div style={{
-          position: 'fixed', inset: 0, zIndex: 60,
+          position: 'fixed', inset: 0, zIndex: 200,
           background: 'rgba(0,0,0,0.45)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 24px',
         }}>
