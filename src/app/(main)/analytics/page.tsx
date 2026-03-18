@@ -38,7 +38,7 @@ export default async function AnalyticsPage() {
 
   return (
     <div className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
-      <div className="page-header pt-safe">
+      <div className="page-header" style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 12px)" }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: '#1A1C21' }}>Аналитика</h1>
       </div>
       <AnalyticsDashboard

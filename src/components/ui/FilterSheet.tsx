@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 export type FilterState = {
   brand: string
@@ -39,6 +39,20 @@ type Props = {
 export default function FilterSheet({ value, onApply, onClose }: Props) {
   const [local, setLocal] = useState<FilterState>(value)
 
+  // Блокируем скролл body пока sheet открыт
+  useEffect(() => {
+    const savedOverflow = document.body.style.overflow
+    const savedPosition = document.body.style.position
+    document.body.style.overflow = 'hidden'
+    document.body.style.position = 'fixed'
+    document.body.style.width = '100%'
+    return () => {
+      document.body.style.overflow = savedOverflow
+      document.body.style.position = savedPosition
+      document.body.style.width = ''
+    }
+  }, [])
+
   function set<K extends keyof FilterState>(k: K, v: FilterState[K]) {
     setLocal(p => ({ ...p, [k]: v }))
   }
@@ -54,17 +68,27 @@ export default function FilterSheet({ value, onApply, onClose }: Props) {
   ].filter(Boolean).length
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 100,
-      background: 'rgba(0,0,0,0.4)',
-      display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-    }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-
-      <div className="anim-sheet" style={{
-        background: '#fff', borderRadius: '24px 24px 0 0',
-        maxHeight: '90dvh', overflowY: 'auto',
-        paddingBottom: 'calc(20px + var(--sab))',
-      }}>
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 100,
+        background: 'rgba(0,0,0,0.4)',
+        display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+        touchAction: 'none',
+      }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div
+        className="anim-sheet"
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: '24px 24px 0 0',
+          maxHeight: '90dvh', overflowY: 'auto',
+          overscrollBehavior: 'contain',
+          WebkitOverflowScrolling: 'touch',
+          paddingBottom: 'calc(20px + var(--sab))',
+          touchAction: 'pan-y',
+        }}
+      >
         {/* Handle */}
         <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px' }}>
           <div style={{ width: 36, height: 4, borderRadius: 2, background: '#E0E1E6' }}/>
