@@ -63,10 +63,10 @@ export default function OrderActivity({ orderId, currentUserId, initialEvents = 
       </button>
 
       {open && (
-        <div style={{ position: 'relative', paddingLeft: 20 }}>
+        <div style={{ position: 'relative' }}>
           {/* Вертикальная линия */}
           <div style={{
-            position: 'absolute', left: 7, top: 8, bottom: 8,
+            position: 'absolute', left: 11, top: 8, bottom: 8,
             width: 1.5, background: '#E0E1E6', borderRadius: 1,
           }}/>
 
@@ -77,19 +77,18 @@ export default function OrderActivity({ orderId, currentUserId, initialEvents = 
               const payload = (ev.payload ?? {}) as Record<string, unknown>
 
               return (
-                <div key={ev.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, animation: 'fade-up 0.2s ease both' }}>
+                <div key={ev.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, paddingLeft: 0, animation: 'fade-up 0.2s ease both' }}>
                   {/* Иконка-точка на линии */}
                   <div style={{
-                    position: 'absolute', left: 0,
-                    width: 16, height: 16, borderRadius: '50%',
+                    width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
                     background: cfg.bg, border: `2px solid ${cfg.color}`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 8, marginTop: 2, flexShrink: 0,
+                    marginTop: 1,
                   }}>
-                    <span style={{ fontSize: 9 }}>{cfg.icon}</span>
+                    <span style={{ fontSize: 11 }}>{cfg.icon}</span>
                   </div>
 
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21', lineHeight: 1.4 }}>
                       {cfg.label(payload, isMe)}
                     </p>

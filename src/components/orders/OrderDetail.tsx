@@ -51,7 +51,7 @@ export default function OrderDetail({
   }
 
   return (
-    <div style={{ padding: '16px', paddingBottom: 'calc(32px + var(--sab))', display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ padding: '16px', paddingBottom: 'calc(100px + var(--sab))', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
       {/* Статус-карточка */}
       <div className="card" style={{ padding: '20px' }}>

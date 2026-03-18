@@ -1,5 +1,7 @@
 'use client'
 
+import { usePullToRefresh } from '@/hooks/usePullToRefresh'
+
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import type { Chat, Room } from '@/types'
@@ -36,6 +38,7 @@ type Props = {
 }
 
 export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
+  const { containerRef, pullDistance, isRefreshing, Indicator } = usePullToRefresh()
   const [tab, setTab] = useState<'personal' | 'rooms'>('personal')
   const [search, setSearch] = useState('')
 
@@ -56,9 +59,10 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
   }, [rooms, search])
 
   return (
-    <div className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
+    <div ref={containerRef} className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
 
       {/* FIX: header фиксированной высоты — не прыгает при смене таба */}
+      <Indicator />
       <div className="page-header pt-safe">
 
         {/* Строка 1: заголовок + кнопка создать (всегда на месте) */}
@@ -168,8 +172,12 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
                 const lastMsgs = (chat as any).last_message
                 const lastMsg  = Array.isArray(lastMsgs) ? lastMsgs[lastMsgs.length - 1] : lastMsgs
                 const timeStr  = lastMsg?.created_at ? msgTime(lastMsg.created_at) : msgTime(chat.created_at)
-                const preview  = lastMsg?.text
-                  ? (lastMsg.sender_id === currentUserId ? `Вы: ${lastMsg.text}` : lastMsg.text)
+                const rawText = lastMsg?.text ?? ''
+                const isCard  = rawText.startsWith('LISTING_CARD:')
+                const displayText = isCard ? '📦 Карточка товара' : rawText
+                const prefix  = lastMsg?.sender_id === currentUserId ? 'Вы: ' : ''
+                const preview = lastMsg?.text
+                  ? `${prefix}${displayText}`
                   : chat.listing ? `📦 ${(chat.listing as { title: string }).title}` : 'Новый чат'
                 return (
                   <Link key={chat.id} href={`/chat/${chat.id}`}

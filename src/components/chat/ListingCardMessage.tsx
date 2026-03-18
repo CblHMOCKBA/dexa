@@ -16,7 +16,6 @@ export type ListingCardData = {
   status: 'active' | 'reserved' | 'sold'
 }
 
-// Формат сообщения — JSON строка начинающаяся с LISTING_CARD:
 export const CARD_PREFIX = 'LISTING_CARD:'
 
 export function encodeListingCard(data: ListingCardData): string {
@@ -25,52 +24,26 @@ export function encodeListingCard(data: ListingCardData): string {
 
 export function decodeListingCard(text: string): ListingCardData | null {
   if (!text.startsWith(CARD_PREFIX)) return null
-  try {
-    return JSON.parse(text.slice(CARD_PREFIX.length))
-  } catch {
-    return null
-  }
+  try { return JSON.parse(text.slice(CARD_PREFIX.length)) } catch { return null }
 }
 
 type Props = {
   data: ListingCardData
   currentUserId: string
-  chatId?: string        // если есть — показываем кнопку "Написать" открывающую этот чат
-  isOwn: boolean         // отправитель = я → не показываем кнопки действий
+  chatId?: string
+  isOwn: boolean
   timeStr: string
   deliveryStatus?: React.ReactNode
 }
 
-export default function ListingCardMessage({
-  data, currentUserId, chatId, isOwn, timeStr, deliveryStatus
-}: Props) {
+export default function ListingCardMessage({ data, currentUserId, chatId, isOwn, timeStr, deliveryStatus }: Props) {
   const router = useRouter()
-  const [chatLoading, setChatLoading] = useState(false)
   const [orderLoading, setOrderLoading] = useState(false)
-  const [done, setDone] = useState<'order' | 'chat' | null>(null)
+  const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const isSeller   = currentUserId === data.seller_id
-  const isAvail    = data.status === 'active'
-  const canAct     = !isOwn && !isSeller && isAvail
-
-  async function openChat() {
-    if (chatId) { router.push(`/chat/${chatId}`); return }
-    setChatLoading(true)
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ listing_id: data.id, seller_id: data.seller_id }),
-      })
-      const json = await res.json()
-      if (json.id) { router.push(`/chat/${json.id}`); setDone('chat') }
-    } catch {
-      setError('Ошибка')
-    } finally {
-      setChatLoading(false)
-    }
-  }
+  const isSeller = currentUserId === data.seller_id
+  const canAct   = !isOwn && !isSeller && data.status === 'active'
 
   async function createOrder() {
     setOrderLoading(true)
@@ -78,30 +51,34 @@ export default function ListingCardMessage({
     try {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('not auth')
+      if (!user) throw new Error('Не авторизован')
 
-      // Находим или создаём чат
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ listing_id: data.id, seller_id: data.seller_id }),
-      })
-      const chatData = await res.json()
-      if (!chatData.id) throw new Error('no chat')
+      // Используем существующий chatId если есть, иначе создаём
+      let resolvedChatId = chatId
+      if (!resolvedChatId) {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ listing_id: data.id, seller_id: data.seller_id }),
+        })
+        const json = await res.json()
+        if (!res.ok || !json.id) throw new Error(json.error ?? 'Не удалось создать чат')
+        resolvedChatId = json.id
+      }
 
       const { error: orderErr } = await supabase.from('orders').insert({
         listing_id:    data.id,
-        chat_id:       chatData.id,
+        chat_id:       resolvedChatId,
         buyer_id:      user.id,
         seller_id:     data.seller_id,
         quantity:      1,
         total_price:   data.price,
         timer_minutes: 30,
       })
+      if (orderErr) throw new Error(orderErr.message)
 
-      if (orderErr) throw orderErr
-      setDone('order')
-      router.push('/orders')
+      setDone(true)
+      setTimeout(() => router.push('/orders'), 600)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Ошибка')
     } finally {
@@ -109,49 +86,44 @@ export default function ListingCardMessage({
     }
   }
 
-  const conditionLabel = data.condition === 'new' ? 'Новый' : 'Б/У'
-  const conditionColor = data.condition === 'new' ? '#006644' : '#7A4F00'
-  const conditionBg    = data.condition === 'new' ? '#E6F9F3' : '#FFF4E0'
-
   return (
     <div style={{
       background: 'white',
       borderRadius: isOwn ? '18px 18px 4px 18px' : '4px 18px 18px 18px',
       overflow: 'hidden',
       boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-      width: 260,
-      opacity: 1,
+      width: 250,
     }}>
-      {/* Шапка карточки */}
+      {/* Шапка */}
       <div style={{
         background: isOwn ? '#2AABEE' : '#EBF2FF',
         padding: '10px 14px 8px',
-        borderBottom: '1px solid rgba(0,0,0,0.06)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-          <span style={{ fontSize: 14 }}>📦</span>
-          <span style={{ fontSize: 10, fontWeight: 700, color: isOwn ? 'rgba(255,255,255,0.8)' : '#1249A8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Товар
-          </span>
-        </div>
+        <p style={{ fontSize: 11, fontWeight: 700, color: isOwn ? 'rgba(255,255,255,0.75)' : '#1249A8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          📦 Товар
+        </p>
         <p style={{ fontSize: 14, fontWeight: 700, color: isOwn ? 'white' : '#1A1C21', lineHeight: 1.3, marginBottom: 2 }}>
           {data.title}
         </p>
         {(data.brand || data.model) && (
-          <p style={{ fontSize: 12, color: isOwn ? 'rgba(255,255,255,0.75)' : '#9498AB' }}>
+          <p style={{ fontSize: 12, color: isOwn ? 'rgba(255,255,255,0.7)' : '#9498AB' }}>
             {[data.brand, data.model].filter(Boolean).join(' ')}
           </p>
         )}
       </div>
 
-      {/* Цена + состояние */}
-      <div style={{ padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <p style={{ fontSize: 20, fontWeight: 800, color: '#1E6FEB', fontFamily: 'var(--font-mono)' }}>
+      {/* Цена + статус */}
+      <div style={{ padding: '10px 14px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <p style={{ fontSize: 20, fontWeight: 800, color: '#1E6FEB', fontFamily: 'var(--font-mono)', margin: 0 }}>
           {data.price.toLocaleString('ru-RU')} ₽
         </p>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: conditionBg, color: conditionColor }}>
-            {conditionLabel}
+        <div style={{ display: 'flex', gap: 5 }}>
+          <span style={{
+            fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+            background: data.condition === 'new' ? '#E6F9F3' : '#FFF4E0',
+            color: data.condition === 'new' ? '#006644' : '#7A4F00',
+          }}>
+            {data.condition === 'new' ? 'Новый' : 'Б/У'}
           </span>
           {data.status !== 'active' && (
             <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#F2F3F5', color: '#9498AB' }}>
@@ -161,42 +133,26 @@ export default function ListingCardMessage({
         </div>
       </div>
 
-      {/* Кнопки действий — только для получателя */}
+      {/* Кнопки — только для покупателя */}
       {canAct && (
         <div style={{ padding: '0 10px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {error && (
-            <p style={{ fontSize: 11, color: '#E8251F', textAlign: 'center', margin: '0 0 4px' }}>{error}</p>
-          )}
+          {error && <p style={{ fontSize: 11, color: '#E8251F', textAlign: 'center', margin: 0 }}>{error}</p>}
 
-          {done === 'order' ? (
+          {done ? (
             <div style={{ textAlign: 'center', padding: '8px 0', fontSize: 13, fontWeight: 700, color: '#006644' }}>
               ✓ Ордер создан
             </div>
           ) : (
             <>
-              {/* Купить / Забронировать */}
               <button onClick={createOrder} disabled={orderLoading} style={{
-                width: '100%', padding: '9px 0', borderRadius: 10, border: 'none',
+                width: '100%', padding: '10px 0', borderRadius: 10, border: 'none',
                 background: '#1E6FEB', color: 'white', fontSize: 13, fontWeight: 700,
-                cursor: orderLoading ? 'not-allowed' : 'pointer',
-                opacity: orderLoading ? 0.7 : 1, transition: 'opacity 0.15s',
+                cursor: orderLoading ? 'not-allowed' : 'pointer', opacity: orderLoading ? 0.7 : 1,
               }}>
                 {orderLoading ? '...' : '🔒 Забронировать'}
               </button>
-
-              {/* Написать продавцу */}
-              <button onClick={openChat} disabled={chatLoading} style={{
-                width: '100%', padding: '9px 0', borderRadius: 10, border: 'none',
-                background: '#F2F3F5', color: '#1A1C21', fontSize: 13, fontWeight: 600,
-                cursor: chatLoading ? 'not-allowed' : 'pointer',
-                opacity: chatLoading ? 0.7 : 1, transition: 'opacity 0.15s',
-              }}>
-                {chatLoading ? '...' : '💬 Написать продавцу'}
-              </button>
-
-              {/* Открыть карточку товара */}
               <button onClick={() => router.push(`/listing/${data.id}`)} style={{
-                width: '100%', padding: '9px 0', borderRadius: 10,
+                width: '100%', padding: '10px 0', borderRadius: 10,
                 border: '1.5px solid #E0E1E6', background: 'white',
                 color: '#5A5E72', fontSize: 13, fontWeight: 600, cursor: 'pointer',
               }}>
@@ -207,27 +163,9 @@ export default function ListingCardMessage({
         </div>
       )}
 
-      {/* Для продавца — просто кнопка перейти к товару */}
-      {isSeller && isOwn && (
-        <div style={{ padding: '0 10px 10px' }}>
-          <button onClick={() => router.push(`/listing/${data.id}`)} style={{
-            width: '100%', padding: '8px 0', borderRadius: 10,
-            border: '1.5px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.15)',
-            color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-          }}>
-            Открыть товар →
-          </button>
-        </div>
-      )}
-
       {/* Время */}
-      <div style={{
-        padding: '0 12px 8px',
-        display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4,
-      }}>
-        <span style={{ fontSize: 10, color: '#9498AB', fontFamily: 'var(--font-mono)' }}>
-          {timeStr}
-        </span>
+      <div style={{ padding: '4px 12px 8px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 3 }}>
+        <span style={{ fontSize: 10, color: '#9498AB', fontFamily: 'var(--font-mono)' }}>{timeStr}</span>
         {deliveryStatus}
       </div>
     </div>

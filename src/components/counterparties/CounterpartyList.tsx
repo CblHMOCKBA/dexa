@@ -1,5 +1,7 @@
 'use client'
 
+import { usePullToRefresh } from '@/hooks/usePullToRefresh'
+
 import { useState } from 'react'
 import Link from 'next/link'
 import type { Counterparty } from '@/types'
@@ -27,6 +29,7 @@ function BalancePill({ balance }: { balance: number }) {
 }
 
 export default function CounterpartyList({ counterparties }: { counterparties: Counterparty[] }) {
+  const { containerRef, pullDistance, isRefreshing, Indicator } = usePullToRefresh()
   const [search, setSearch]       = useState('')
   const [typeFilter, setTypeFilter] = useState<'all' | 'supplier' | 'buyer' | 'both'>('all')
 
@@ -45,9 +48,10 @@ export default function CounterpartyList({ counterparties }: { counterparties: C
   const totalOwed    = counterparties.reduce((s, c) => s + Math.max(0, c.balance ?? 0), 0)
 
   return (
-    <div className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
+    <div ref={containerRef} className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
 
       {/* Header */}
+      <Indicator />
       <div className="page-header pt-safe">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: '#1A1C21' }}>Контрагенты</h1>

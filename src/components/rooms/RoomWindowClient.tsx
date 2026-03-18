@@ -609,11 +609,16 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
                           </span>
                         </div>
                         {m.status === 'error' && (
-                          <button onClick={() => retrySend(m)} style={{
-                            display: 'block', marginTop: 4, marginLeft: 'auto',
-                            fontSize: 11, color: '#E8251F', fontWeight: 700,
-                            background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0',
-                          }}>↻ Повторить</button>
+                          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                            <button onClick={() => retrySend(m)} style={{
+                              fontSize: 11, color: '#1E6FEB', fontWeight: 700,
+                              background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0',
+                            }}>↻ Повторить</button>
+                            <button onClick={() => setMsgs(prev => prev.filter(x => x.id !== m.id))} style={{
+                              fontSize: 11, color: '#E8251F', fontWeight: 700,
+                              background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0',
+                            }}>Удалить</button>
+                          </div>
                         )}
                       </>
                     )
