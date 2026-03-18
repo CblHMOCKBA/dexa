@@ -218,7 +218,7 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
 
   return (
     <>
-      <form onSubmit={save} style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 'calc(40px + var(--sab))' }}>
+      <form onSubmit={save} style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 'calc(80px + var(--sab))' }}>
 
         {/* ── Шаг 1: UPC ── */}
         <div style={{ background: '#F8F9FF', borderRadius: 16, padding: '14px', border: '1px solid #E0E8FF' }}>

@@ -49,7 +49,9 @@ function classifyAndClean(raw: string, mode: Mode): { type: ScanResult['type']; 
   // UPC/EAN — только цифры 8-14
   if (/^\d{8,14}$/.test(value)) {
     if (mode === 'serial' || mode === 'imei') return null
-    return { type: 'upc', value }
+    // Убираем ведущий ноль: EAN-13 04549995649284 → UPC-A 4549995649284
+    const upc = value.startsWith('0') && value.length === 13 ? value.slice(1) : value
+    return { type: 'upc', value: upc }
   }
   // Серийник — буквы + цифры 6-15
   if (/^[A-Z0-9]{6,15}$/.test(value) && /[A-Z]/.test(value) && /[0-9]/.test(value)) {

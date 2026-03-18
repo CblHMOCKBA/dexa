@@ -21,17 +21,17 @@ type SerialItem = {
 }
 
 const STATUS_LABEL: Record<string, { label: string; color: string; bg: string }> = {
-  available: { label: 'В наличии',   color: '#006644', bg: '#E6F9F3' },
+  available: { label: 'В наличии',    color: '#006644', bg: '#E6F9F3' },
   reserved:  { label: 'Забронирован', color: '#7A4F00', bg: '#FFF4E0' },
-  sold:      { label: 'Продан',       color: '#9498AB', bg: '#F2F3F5' },
-  repair:    { label: 'В ремонте',    color: '#5B00CC', bg: '#F0E8FF' },
-  returned:  { label: 'Возврат',      color: '#A8170F', bg: '#FFEBEA' },
+  sold:      { label: 'Продан',        color: '#9498AB', bg: '#F2F3F5' },
+  repair:    { label: 'В ремонте',     color: '#5B00CC', bg: '#F0E8FF' },
+  returned:  { label: 'Возврат',       color: '#A8170F', bg: '#FFEBEA' },
 }
 
 export default function SerialSearch() {
-  const [query, setQuery]     = useState('')
-  const [result, setResult]   = useState<SerialItem | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [query, setQuery]       = useState('')
+  const [result, setResult]     = useState<SerialItem | null>(null)
+  const [loading, setLoading]   = useState(false)
   const [notFound, setNotFound] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
 
@@ -40,8 +40,9 @@ export default function SerialSearch() {
     setLoading(true); setNotFound(false); setResult(null)
 
     const supabase = createClient()
-    const q = value.trim()
+    const q = value.trim().toUpperCase()
 
+    // Ищем по серийному номеру ИЛИ IMEI
     const { data } = await supabase
       .from('serial_items')
       .select(`
@@ -55,11 +56,8 @@ export default function SerialSearch() {
       .or(`serial_number.eq.${q},imei.eq.${q}`)
       .single()
 
-    if (data) {
-      setResult(data as SerialItem)
-    } else {
-      setNotFound(true)
-    }
+    setResult(data ? data as SerialItem : null)
+    setNotFound(!data)
     setLoading(false)
   }
 
@@ -79,10 +77,12 @@ export default function SerialSearch() {
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && search(query)}
-          placeholder="Серийный номер или IMEI..."
+          placeholder="Серийный номер или штрихкод..."
           className="input"
           style={{ flex: 1, fontFamily: 'var(--font-mono)' }}
+          autoCapitalize="characters"
         />
+        {/* Сканер — mode=any читает и S/N и штрихкод */}
         <button onClick={() => setShowScanner(true)} style={{
           width: 48, height: 48, borderRadius: 12, flexShrink: 0,
           background: '#1E6FEB', border: 'none', cursor: 'pointer',
@@ -93,7 +93,8 @@ export default function SerialSearch() {
             <rect x="7" y="7" width="10" height="10" rx="1"/>
           </svg>
         </button>
-        <button onClick={() => search(query)} disabled={!query.trim() || loading} className="btn-primary" style={{ padding: '0 16px', minHeight: 48 }}>
+        <button onClick={() => search(query)} disabled={!query.trim() || loading}
+          className="btn-primary" style={{ padding: '0 16px', minHeight: 48 }}>
           {loading ? '...' : 'Найти'}
         </button>
       </div>
@@ -104,7 +105,7 @@ export default function SerialSearch() {
           <p style={{ fontSize: 32, marginBottom: 10 }}>🔍</p>
           <p style={{ fontWeight: 700, color: '#1A1C21', marginBottom: 6 }}>Не найдено</p>
           <p style={{ fontSize: 14, color: '#9498AB' }}>
-            Серийный номер «{query}» не зарегистрирован в Dexa
+            «{query}» не зарегистрирован в Dexa
           </p>
         </div>
       )}
@@ -112,8 +113,6 @@ export default function SerialSearch() {
       {/* Результат */}
       {result && st && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-
-          {/* Статус */}
           <div className="card" style={{ padding: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
               <div style={{ flex: 1 }}>
@@ -129,8 +128,6 @@ export default function SerialSearch() {
                 {st.label}
               </span>
             </div>
-
-            {/* S/N и IMEI */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {result.serial_number && (
                 <div style={{ background: '#F2F3F5', borderRadius: 10, padding: '10px 14px' }}>
@@ -151,17 +148,12 @@ export default function SerialSearch() {
             </div>
           </div>
 
-          {/* История */}
           <div className="card" style={{ padding: '16px' }}>
             <p style={{ fontSize: 12, fontWeight: 700, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 14 }}>
               История устройства
             </p>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0, position: 'relative', paddingLeft: 24 }}>
-              {/* Вертикальная линия */}
               <div style={{ position: 'absolute', left: 7, top: 8, bottom: 8, width: 2, background: '#E0E1E6', borderRadius: 1 }}/>
-
-              {/* Поступление */}
               <div style={{ display: 'flex', gap: 12, marginBottom: 16, position: 'relative' }}>
                 <div style={{ position: 'absolute', left: -20, width: 14, height: 14, borderRadius: '50%', background: '#EBF2FF', border: '2px solid #1E6FEB', top: 2 }}/>
                 <div>
@@ -176,8 +168,6 @@ export default function SerialSearch() {
                   </p>
                 </div>
               </div>
-
-              {/* Продажа */}
               {result.order && (
                 <div style={{ display: 'flex', gap: 12, position: 'relative' }}>
                   <div style={{ position: 'absolute', left: -20, width: 14, height: 14, borderRadius: '50%', background: '#E6F9F3', border: '2px solid #00B173', top: 2 }}/>
@@ -203,11 +193,11 @@ export default function SerialSearch() {
         </div>
       )}
 
-      {/* Сканер */}
+      {/* Сканер — mode=any: читает S/N и штрихкод */}
       {showScanner && (
         <BarcodeScanner
-          mode="serial"
-          hint="Наведи на S/N или IMEI устройства"
+          mode="any"
+          hint="Наведи на серийный номер или штрихкод"
           onScan={handleScan}
           onClose={() => setShowScanner(false)}
         />
