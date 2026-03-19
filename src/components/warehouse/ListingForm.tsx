@@ -81,6 +81,9 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
   const [serials, setSerials] = useState<SerialEntry[]>(() =>
     Array.from({ length: qty }, () => ({ serial_number: '', imei: '' }))
   )
+  // Существующие серийники для режима редактирования
+  const [existingSerials, setExistingSerials] = useState<Array<{ id: string; serial_number: string | null; imei: string | null; status: string }>>([])
+  const [loadingSerials, setLoadingSerials] = useState(false)
   const snRefs   = useRef<(HTMLInputElement | null)[]>([])
   const imeiRefs = useRef<(HTMLInputElement | null)[]>([])
 
@@ -96,6 +99,21 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
       return prev.slice(0, newLen)
     })
   }, [form.quantity])
+
+  // Загружаем существующие серийники при редактировании
+  useEffect(() => {
+    if (!listing) return
+    setLoadingSerials(true)
+    const supabase = createClient()
+    supabase.from('serial_items')
+      .select('id, serial_number, imei, status')
+      .eq('listing_id', listing.id)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => {
+        setExistingSerials(data ?? [])
+        setLoadingSerials(false)
+      })
+  }, [listing])
 
   function f<K extends keyof FormData>(k: K, v: FormData[K]) {
     setForm(p => ({ ...p, [k]: v }))
@@ -223,10 +241,10 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
         {/* ── Шаг 1: UPC ── */}
         <div style={{ background: '#F8F9FF', borderRadius: 16, padding: '14px', border: '1px solid #E0E8FF' }}>
           <p style={{ fontSize: 11, fontWeight: 700, color: '#1249A8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
-            Шаг 1 · Штрихкод товара (UPC)
+            {listing ? 'Штрихкод товара (UPC)' : 'Шаг 1 · Штрихкод товара (UPC)'}
           </p>
 
-          {upcStatus.state === 'idle' && (
+          {!listing && upcStatus.state === 'idle' && (
             <button type="button" onClick={() => setScanMode('upc')} style={{
               width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
               padding: '13px', borderRadius: 12, background: '#1E6FEB', color: '#fff',
@@ -358,7 +376,52 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
           </div>
         </div>
 
-        {/* ── Шаг 2: Серийные номера ── */}
+        {/* ── Серийники ── */}
+        {listing && (
+          <div style={{ background: '#F8F9FF', borderRadius: 16, padding: '14px', border: '1px solid #E0E8FF' }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: '#1249A8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
+              Серийные номера · {existingSerials.length} шт
+            </p>
+            {loadingSerials ? (
+              <p style={{ fontSize: 13, color: '#9498AB', textAlign: 'center', padding: '8px 0' }}>Загрузка...</p>
+            ) : existingSerials.length === 0 ? (
+              <p style={{ fontSize: 13, color: '#9498AB' }}>Серийники не добавлялись при создании</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {existingSerials.map((s, i) => (
+                  <div key={s.id} style={{
+                    background: '#fff', borderRadius: 10, padding: '10px 12px',
+                    border: '1.5px solid #E0E1E6',
+                    display: 'flex', alignItems: 'center', gap: 10,
+                  }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: '#9498AB', minWidth: 20 }}>{i + 1}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {s.serial_number && (
+                        <p style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: '#1A1C21', fontWeight: 600 }}>
+                          S/N: {s.serial_number}
+                        </p>
+                      )}
+                      {s.imei && (
+                        <p style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: '#5A5E72' }}>
+                          IMEI: {s.imei}
+                        </p>
+                      )}
+                    </div>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 5, flexShrink: 0,
+                      background: s.status === 'available' ? '#E6F9F3' : s.status === 'sold' ? '#F2F3F5' : '#FFF4E0',
+                      color: s.status === 'available' ? '#006644' : s.status === 'sold' ? '#9498AB' : '#7A4F00',
+                    }}>
+                      {s.status === 'available' ? 'В наличии' : s.status === 'sold' ? 'Продан' : s.status === 'reserved' ? 'Бронь' : s.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Шаг 2: Серийные номера (только при создании) ── */}
         {!listing && (
           <div style={{ background: '#F8F9FF', borderRadius: 16, padding: '14px', border: '1px solid #E0E8FF' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
