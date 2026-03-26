@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Listing, Order } from '@/types'
 import ListingCard from '@/components/listings/ListingCard'
 import FilterSheet, { FilterState, EMPTY_FILTER } from '@/components/ui/FilterSheet'
+import RequestCard, { type RequestItem } from '@/components/requests/RequestCard'
 
 type DashboardProps = {
   listings: Listing[]
@@ -31,7 +32,10 @@ export default function HomeDashboard({
   const [search, setSearch]         = useState('')
   const [showFilter, setShowFilter] = useState(false)
   const [showLocMenu, setShowLocMenu] = useState(false)
-  const [tab, setTab]               = useState<'market' | 'new'>('market')
+  const [tab, setTab]               = useState<'market' | 'requests'>('market')
+  const [requests, setRequests]     = useState<RequestItem[]>([])
+  const [myOffers, setMyOffers]     = useState<Record<string, { id: string; price: number; status: string }>>({})
+  const [loadingReqs, setLoadingReqs] = useState(false)
 
   useEffect(() => {
     const supabase = createClient()
@@ -40,6 +44,31 @@ export default function HomeDashboard({
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [router])
+
+  useEffect(() => {
+    if (tab !== 'requests') return
+    setLoadingReqs(true)
+    const supabase = createClient()
+    Promise.all([
+      supabase.from('requests')
+        .select('*, buyer:profiles!requests_buyer_id_fkey(name, location, avatar_url), offers_count:request_offers(count)')
+        .eq('status', 'open')
+        .order('created_at', { ascending: false }),
+      supabase.from('request_offers')
+        .select('id, request_id, price, status')
+        .eq('seller_id', currentUserId),
+    ]).then(([{ data: reqs }, { data: offs }]) => {
+      const mapped = (reqs ?? []).map((r: RequestItem & { offers_count: { count: number }[] }) => ({
+        ...r,
+        offers_count: r.offers_count?.[0]?.count ?? 0,
+      }))
+      setRequests(mapped as RequestItem[])
+      const offerMap: Record<string, { id: string; price: number; status: string }> = {}
+      for (const o of offs ?? []) offerMap[o.request_id] = o
+      setMyOffers(offerMap)
+      setLoadingReqs(false)
+    })
+  }, [tab, currentUserId])
 
   const filtered = listings
     .filter(l => {
@@ -126,8 +155,24 @@ export default function HomeDashboard({
           </div>
         </div>
 
+        {/* Табы: Лента / Запросы */}
+        <div style={{ display: 'flex', background: '#F2F3F5', borderRadius: 12, padding: 3, marginBottom: 10 }}>
+          {(['market', 'requests'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)} style={{
+              flex: 1, padding: '8px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
+              fontSize: 14, fontWeight: 600,
+              background: tab === t ? '#fff' : 'transparent',
+              color: tab === t ? '#1A1C21' : '#9498AB',
+              boxShadow: tab === t ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+              transition: 'all 0.15s',
+            }}>
+              {t === 'market' ? '🏪 Товары' : '📢 Запросы'}
+            </button>
+          ))}
+        </div>
+
         {/* Поиск + фильтр */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 10, display: tab === 'requests' ? 'none' : 'flex' }}>
           <div style={{ position: 'relative', flex: 1 }}>
             <svg style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
               width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9498AB" strokeWidth="2.5">
@@ -230,35 +275,98 @@ export default function HomeDashboard({
         </div>
       ) : null}
 
-      {/* ── Лента товаров ── */}
+      {/* ── Лента товаров / Запросы ── */}
       <div style={{ padding: '14px 16px 0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <p className="section-label">
-            {filtered.length > 0 ? `Предложения · ${filtered.length}` : 'Нет предложений'}
-          </p>
-          {filter.sort !== 'newest' && (
-            <span style={{ fontSize: 12, color: '#1E6FEB', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-              {filter.sort === 'price_asc' ? '↑ по цене' : '↓ по цене'}
-            </span>
-          )}
-        </div>
 
-        {filtered.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <p style={{ fontSize: 32, marginBottom: 12 }}>🔍</p>
-            <p style={{ fontWeight: 700, color: '#1A1C21', marginBottom: 6 }}>Ничего не найдено</p>
-            <button onClick={() => { setFilter(EMPTY_FILTER); setSearch('') }} style={{
-              background: '#EBF2FF', color: '#1249A8', border: 'none',
-              borderRadius: 10, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-            }}>
-              Сбросить фильтры
-            </button>
-          </div>
-        ) : (
-          <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {filtered.map((l, i) => <ListingCard key={l.id} listing={l} index={i} />)}
-          </div>
+        {tab === 'market' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <p className="section-label">
+                {filtered.length > 0 ? `Предложения · ${filtered.length}` : 'Нет предложений'}
+              </p>
+              {filter.sort !== 'newest' && (
+                <span style={{ fontSize: 12, color: '#1E6FEB', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                  {filter.sort === 'price_asc' ? '↑ по цене' : '↓ по цене'}
+                </span>
+              )}
+            </div>
+
+            {filtered.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                <p style={{ fontSize: 32, marginBottom: 12 }}>🔍</p>
+                <p style={{ fontWeight: 700, color: '#1A1C21', marginBottom: 6 }}>Ничего не найдено</p>
+                <button onClick={() => { setFilter(EMPTY_FILTER); setSearch('') }} style={{
+                  background: '#EBF2FF', color: '#1249A8', border: 'none',
+                  borderRadius: 10, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                }}>
+                  Сбросить фильтры
+                </button>
+              </div>
+            ) : (
+              <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {filtered.map((l, i) => <ListingCard key={l.id} listing={l} index={i} />)}
+              </div>
+            )}
+          </>
         )}
+
+        {tab === 'requests' && (
+          <>
+            {/* Шапка запросов */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <p className="section-label">
+                {loadingReqs ? 'Загрузка...' : `Открытых запросов · ${requests.length}`}
+              </p>
+              <Link href="/requests/new" style={{ textDecoration: 'none' }}>
+                <button style={{
+                  background: '#1E6FEB', color: 'white', border: 'none',
+                  borderRadius: 10, padding: '7px 14px',
+                  fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                }}>
+                  + Создать
+                </button>
+              </Link>
+            </div>
+
+            {loadingReqs ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {[0,1,2].map(i => (
+                  <div key={i} className="card" style={{ height: 160, background: '#F8F9FF' }}>
+                    <div className="skeleton" style={{ height: '100%', borderRadius: 14 }}/>
+                  </div>
+                ))}
+              </div>
+            ) : requests.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '50px 24px' }}>
+                <p style={{ fontSize: 40, marginBottom: 12 }}>📢</p>
+                <p style={{ fontWeight: 700, color: '#1A1C21', marginBottom: 6 }}>Запросов нет</p>
+                <p style={{ fontSize: 14, color: '#9498AB', marginBottom: 20 }}>
+                  Создай запрос — продавцы предложат свои цены
+                </p>
+                <Link href="/requests/new" style={{ textDecoration: 'none' }}>
+                  <button style={{
+                    background: '#1E6FEB', color: 'white', border: 'none',
+                    borderRadius: 12, padding: '13px 28px', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+                  }}>
+                    📢 Создать запрос
+                  </button>
+                </Link>
+              </div>
+            ) : (
+              <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {requests.map(req => (
+                  <RequestCard
+                    key={req.id}
+                    request={req}
+                    currentUserId={currentUserId}
+                    myOffer={myOffers[req.id] ?? null}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
       </div>
 
       {/* FilterSheet */}
