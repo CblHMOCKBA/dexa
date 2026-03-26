@@ -238,7 +238,8 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
     <>
       <form onSubmit={save} style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 'calc(80px + var(--sab))' }}>
 
-        {/* ── Шаг 1: UPC ── */}
+        {/* ── UPC — показываем только при создании ── */}
+        {!listing && (
         <div style={{ background: '#F8F9FF', borderRadius: 16, padding: '14px', border: '1px solid #E0E8FF' }}>
           <p style={{ fontSize: 11, fontWeight: 700, color: '#1249A8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
             {listing ? 'Штрихкод товара (UPC)' : 'Шаг 1 · Штрихкод товара (UPC)'}

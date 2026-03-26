@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Listing, ListingTemplate } from '@/types'
 import ExportButton from '@/components/listings/ExportButton'
+import QuickDealSheet from '@/components/warehouse/QuickDealSheet'
 
 function calcMargin(price: number, cost: number | null) {
   if (!cost || cost <= 0) return null
@@ -20,6 +21,15 @@ export default function WarehouseList({
   initialTemplates: ListingTemplate[]
 }) {
   const router = useRouter()
+
+  // Get current user ID for QuickDeal
+  useState(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) setCurrentUserId(data.user.id)
+    })
+  })
+
   const [listings, setListings]   = useState<Listing[]>(initialListings)
   const [templates, setTemplates] = useState<ListingTemplate[]>(initialTemplates)
   const [selected, setSelected]   = useState<Set<string>>(new Set())
@@ -27,6 +37,8 @@ export default function WarehouseList({
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'reserved' | 'sold'>('all')
   const [onlyLowStock, setOnlyLowStock] = useState(false)
   const [batchAction, setBatchAction]   = useState<string | null>(null)
+  const [quickDealListing, setQuickDealListing] = useState<Listing | null>(null)
+  const [currentUserId, setCurrentUserId] = useState<string>('')
   const [batchPrice, setBatchPrice]     = useState('')
   const [batchLoading, setBatchLoading] = useState(false)
 
@@ -291,6 +303,11 @@ export default function WarehouseList({
                           {l.title}
                         </p>
                         <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                          {l.status === 'active' && (
+                            <button onClick={e => { e.stopPropagation(); setQuickDealListing(l) }} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E0E1E6', background: '#EBF2FF', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Провести сделку">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1E6FEB" strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                            </button>
+                          )}
                           <Link href={`/warehouse/${l.id}/edit`}>
                             <button style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E0E1E6', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5A5E72" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -332,6 +349,14 @@ export default function WarehouseList({
           <ExportButton />
         </div>
       </div>
+      {/* QuickDeal Sheet */}
+      {quickDealListing && currentUserId && (
+        <QuickDealSheet
+          listing={quickDealListing}
+          userId={currentUserId}
+          onClose={() => setQuickDealListing(null)}
+        />
+      )}
     </div>
   )
 }
