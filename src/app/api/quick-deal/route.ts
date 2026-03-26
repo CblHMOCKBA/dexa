@@ -51,9 +51,13 @@ export async function POST(req: Request) {
     }).eq('id', serial_item_id)
   }
 
-  // Уменьшаем количество
+  // Уменьшаем количество, при 0 — архивируем
+  const newQty = Math.max(0, (listing.quantity ?? 1) - 1)
   await supabase.from('listings')
-    .update({ quantity: Math.max(0, (listing.quantity ?? 1) - 1) })
+    .update({
+      quantity: newQty,
+      status: newQty === 0 ? 'sold' : 'active',
+    })
     .eq('id', listing_id)
 
   // Фиксируем платёж у контрагента

@@ -28,7 +28,13 @@ export default function OrderDetail({
   const router  = useRouter()
   const isBuyer  = currentUserId === order.buyer_id
   const isSeller = currentUserId === order.seller_id
-  const partner  = isBuyer ? order.seller : order.buyer
+  // Ручная сделка — buyer = seller = currentUser, показываем контрагента
+  const isManual = order.buyer_id === order.seller_id && order.buyer_id === currentUserId
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const counterparty = (order as any).counterparty
+  const partner  = isManual
+    ? null
+    : (isBuyer ? order.seller : order.buyer)
   const myApproved = isBuyer ? order.buyer_approved : order.seller_approved
   const stepIdx  = STEPS.indexOf(order.status)
   const displayPrice = order.counter_status === 'accepted' && order.counter_price
@@ -126,19 +132,23 @@ export default function OrderDetail({
           </div>
         )}
 
-        {/* Партнёр */}
-        {partner && (
+        {/* Партнёр / Контрагент */}
+        {(partner || (isManual && counterparty)) && (
           <div style={{ background: '#F2F3F5', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ width: 38, height: 38, borderRadius: 10, background: '#EBF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, color: '#1249A8', fontFamily: 'var(--font-mono)', flexShrink: 0 }}>
-              {partner.name[0].toUpperCase()}
+              {(isManual ? counterparty?.name : partner?.name)?.[0]?.toUpperCase() ?? '?'}
             </div>
             <div>
               <p style={{ fontSize: 11, color: '#9498AB', fontFamily: 'var(--font-mono)' }}>
-                {isBuyer ? 'Продавец' : 'Покупатель'}
+                {isManual ? 'Контрагент' : isBuyer ? 'Продавец' : 'Покупатель'}
               </p>
-              <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1C21' }}>{partner.name}</p>
-              {partner.location && (
-                <p style={{ fontSize: 11, color: '#9498AB', fontFamily: 'var(--font-mono)' }}>{partner.location}</p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1C21' }}>
+                {isManual ? counterparty?.name : partner?.name}
+              </p>
+              {(isManual ? counterparty?.company : partner?.location) && (
+                <p style={{ fontSize: 11, color: '#9498AB', fontFamily: 'var(--font-mono)' }}>
+                  {isManual ? counterparty?.company : partner?.location}
+                </p
               )}
             </div>
           </div>

@@ -16,7 +16,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       *,
       listing:listings(*),
       buyer:profiles!orders_buyer_id_fkey(*),
-      seller:profiles!orders_seller_id_fkey(*)
+      seller:profiles!orders_seller_id_fkey(*),
+      counterparty:counterparties(id, name, company, type, phone)
     `)
     .eq('id', id)
     .or(`buyer_id.eq.${user!.id},seller_id.eq.${user!.id}`)
