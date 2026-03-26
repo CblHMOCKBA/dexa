@@ -185,11 +185,9 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
       }
     }
 
-    setScanMode(null); setScanIdx(null)
-
     if (mode === 'serial') {
       // В режиме серийника пишем в serial_number
-      // (result.type может быть imei если IMEI ещё не заполнен — тогда пишем как S/N)
+      setScanMode(null); setScanIdx(null)
       updateSerial(idx, 'serial_number', result.value)
       if (isSmartphone) {
         setTimeout(() => imeiRefs.current[idx]?.focus(), 100)
@@ -197,10 +195,16 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
         setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
       }
     } else if (mode === 'imei') {
-      updateSerial(idx, 'imei', result.value)
+      // IMEI — только цифры, минимум 14 символов
+      // Если схватили серийник с буквами — игнорируем, сканер ждёт дальше
+      const digitsOnly = result.value.replace(/\D/g, '')
+      if (digitsOnly.length < 14) return  // не IMEI — ждём
+      setScanMode(null); setScanIdx(null)
+      updateSerial(idx, 'imei', digitsOnly.slice(0, 15))
       setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
     } else {
       // Авто-режим
+      setScanMode(null); setScanIdx(null)
       if (result.type === 'imei') {
         updateSerial(idx, 'imei', result.value)
         setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
