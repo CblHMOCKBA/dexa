@@ -71,5 +71,8 @@ export async function POST(req: Request) {
     note:      `Продажа: ${listing.title}`,
   })
 
+  // Увеличиваем счётчик сделок продавца
+  await supabase.rpc('increment_deals_count', { user_id: user.id })
+
   return NextResponse.json({ id: order.id })
 }

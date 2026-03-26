@@ -96,10 +96,10 @@ export default function OrderDetail({
             </p>
           )}
           <span style={{ marginLeft: 'auto', fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 700,
-            color: isBuyer ? '#1249A8' : '#006644',
-            background: isBuyer ? '#EBF2FF' : '#E6F9F3',
+            color: (isManual || !isBuyer) ? '#006644' : '#1249A8',
+            background: (isManual || !isBuyer) ? '#E6F9F3' : '#EBF2FF',
             padding: '3px 10px', borderRadius: 6 }}>
-            {isBuyer ? 'Покупка' : 'Продажа'} · {order.quantity} шт
+            {isManual ? 'Продажа' : isBuyer ? 'Покупка' : 'Продажа'} · {order.quantity} шт
           </span>
         </div>
 
