@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { Listing, ListingTemplate } from '@/types'
 import ExportButton from '@/components/listings/ExportButton'
-import QuickDealSheet from '@/components/warehouse/QuickDealSheet'
+import dynamic from 'next/dynamic'
+const QuickDealSheet = dynamic(() => import('@/components/warehouse/QuickDealSheet'), { ssr: false })
 
 function calcMargin(price: number, cost: number | null) {
   if (!cost || cost <= 0) return null
