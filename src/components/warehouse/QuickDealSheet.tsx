@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 
 type SerialItem = {
   id: string
@@ -90,53 +89,22 @@ export default function QuickDealSheet({ listing, userId, onClose }: Props) {
     if (!selectedCP) return
     setSaving(true); setError(null)
     try {
-      const supabase = createClient()
-
-      // 1. Создаём или находим чат (без listing — это ручная сделка)
-      // Создаём ордер напрямую
-      const { data: orderData, error: orderErr } = await supabase.from('orders').insert({
-        listing_id:       listing.id,
-        chat_id:          null, // ручная сделка без чата
-        buyer_id:         selectedCP.id,   // покупатель = контрагент (упрощение)
-        seller_id:        userId,
-        quantity:         1,
-        total_price:      Number(price),
-        status:           'completed',     // сразу закрыта
-        counterparty_id:  selectedCP.id,
-        timer_minutes:    0,
-        buyer_approved_at: new Date().toISOString(),
-        seller_approved_at: new Date().toISOString(),
-      }).select('id').single()
-
-      if (orderErr) throw new Error(orderErr.message)
-
-      // 2. Обновляем серийник если выбран
-      if (selectedSerial) {
-        await supabase.from('serial_items').update({
-          status: 'sold',
-          order_id: orderData.id,
-        }).eq('id', selectedSerial.id)
-      }
-
-      // 3. Уменьшаем количество на складе
-      await supabase.from('listings')
-        .update({ quantity: Math.max(0, listing.quantity - 1) })
-        .eq('id', listing.id)
-
-      // 4. Фиксируем платёж у контрагента
-      await supabase.from('payments').insert({
-        counterparty_id: selectedCP.id,
-        owner_id:        userId,
-        amount:          Number(price),
-        direction:       'in',
-        method:          'cash',
-        order_id:        orderData.id,
-        note:            `Продажа: ${listing.title}`,
+      const res = await fetch('/api/quick-deal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          listing_id:       listing.id,
+          counterparty_id:  selectedCP.id,
+          serial_item_id:   selectedSerial?.id ?? null,
+          price:            Number(price),
+        }),
       })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Ошибка сервера')
 
       router.refresh()
       onClose()
-      router.push(`/orders/${orderData.id}`)
+      router.push(`/orders/${data.id}`)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Ошибка')
       setSaving(false)
