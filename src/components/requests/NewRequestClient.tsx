@@ -68,7 +68,7 @@ export default function NewRequestClient({ userId }: { userId: string }) {
   }
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
+    <div className="page-with-nav" style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
       <div className="screen-header">
         <BackButton href="/feed" />
         <div style={{ flex: 1 }}>
@@ -77,7 +77,7 @@ export default function NewRequestClient({ userId }: { userId: string }) {
         </div>
       </div>
 
-      <form onSubmit={submit} style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 'calc(32px + env(safe-area-inset-bottom))' }}>
+      <form onSubmit={submit} style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 'calc(100px + env(safe-area-inset-bottom, 0px))' }}>
 
         {/* Что ищешь */}
         <div style={{ background: 'white', borderRadius: 16, padding: 16 }}>
