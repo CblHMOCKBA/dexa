@@ -135,6 +135,13 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
           }}>
             📊 Аналитика
           </Link>
+          <Link href="/roadmap" style={{
+            padding: '10px 14px', borderRadius: 12, fontSize: 14, fontWeight: 600,
+            background: '#1A1C21', color: 'rgba(255,255,255,0.9)', textDecoration: 'none',
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            🗺 Roadmap
+          </Link>
           <button onClick={logout} style={{
             padding: '10px 14px', borderRadius: 12, fontSize: 14, fontWeight: 600,
             border: '1.5px solid #FFCDD0', background: '#FFEBEA', color: '#E8251F', cursor: 'pointer',
