@@ -326,6 +326,7 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
             </div>
           )}
         </div>
+        )}
 
         {/* Название */}
         <div>
