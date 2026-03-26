@@ -148,7 +148,7 @@ export default function OrderDetail({
               {(isManual ? counterparty?.company : partner?.location) && (
                 <p style={{ fontSize: 11, color: '#9498AB', fontFamily: 'var(--font-mono)' }}>
                   {isManual ? counterparty?.company : partner?.location}
-                </p
+                </p>
               )}
             </div>
           </div>
