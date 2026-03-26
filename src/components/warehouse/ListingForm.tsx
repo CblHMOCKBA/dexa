@@ -172,12 +172,24 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
   // S/N + IMEI flow
   const handleSerialScan = useCallback((result: ScanResult, idx: number, forcedMode?: ScanMode) => {
     const mode = forcedMode ?? scanMode
+
+    // Ключевая защита: если режим 'serial' и сканер опознал IMEI-формат
+    // — проверяем не заполнен ли уже IMEI у этой позиции.
+    // Если IMEI уже есть — это повторное считывание той же коробки,
+    // игнорируем и НЕ закрываем сканер, ждём настоящий S/N.
+    if (mode === 'serial' && result.type === 'imei') {
+      const currentImei = serials[idx]?.imei
+      if (currentImei) {
+        // IMEI уже заполнен — просто игнорируем, сканер остаётся открытым
+        return
+      }
+    }
+
     setScanMode(null); setScanIdx(null)
 
-    // Если режим явно задан — игнорируем тип из сканера
-    // (чтобы повторный IMEI не перезаписывал уже заполненный при сканировании S/N)
     if (mode === 'serial') {
-      // Принудительно пишем в serial_number — даже если сканер опознал как IMEI
+      // В режиме серийника пишем в serial_number
+      // (result.type может быть imei если IMEI ещё не заполнен — тогда пишем как S/N)
       updateSerial(idx, 'serial_number', result.value)
       if (isSmartphone) {
         setTimeout(() => imeiRefs.current[idx]?.focus(), 100)
@@ -185,11 +197,10 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
         setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
       }
     } else if (mode === 'imei') {
-      // Принудительно пишем в imei
       updateSerial(idx, 'imei', result.value)
       setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
     } else {
-      // Авто-режим — определяем по типу
+      // Авто-режим
       if (result.type === 'imei') {
         updateSerial(idx, 'imei', result.value)
         setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
@@ -202,7 +213,7 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
         }
       }
     }
-  }, [qty, isSmartphone])
+  }, [qty, isSmartphone, serials])
 
   const margin = form.price && form.cost_price
     ? calcMargin(Number(form.price), Number(form.cost_price)) : null
