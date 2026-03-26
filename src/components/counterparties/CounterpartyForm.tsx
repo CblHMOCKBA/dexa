@@ -104,7 +104,7 @@ export default function CounterpartyForm({ counterparty }: { counterparty?: Coun
 
       <form onSubmit={save} style={{
         padding: '16px', display: 'flex', flexDirection: 'column', gap: 16,
-        paddingBottom: 'calc(40px + var(--sab))',
+        paddingBottom: 'calc(100px + env(safe-area-inset-bottom, 0px))',
       }}>
 
         {/* Тип */}
