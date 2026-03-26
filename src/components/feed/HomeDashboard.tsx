@@ -7,6 +7,8 @@ import { createClient } from '@/lib/supabase/client'
 import type { Listing, Order } from '@/types'
 import ListingCard from '@/components/listings/ListingCard'
 import FilterSheet, { FilterState, EMPTY_FILTER } from '@/components/ui/FilterSheet'
+import { usePullToRefresh } from '@/hooks/usePullToRefresh'
+import PullIndicator from '@/components/ui/PullIndicator'
 import RequestCard, { type RequestItem } from '@/components/requests/RequestCard'
 
 type DashboardProps = {
@@ -27,6 +29,7 @@ export default function HomeDashboard({
   totalOrdersValue,
 }: DashboardProps) {
   const router = useRouter()
+  const { pullDistance, isRefreshing, triggered } = usePullToRefresh()
   const [listings, setListings]     = useState<Listing[]>(initialListings)
   const [filter, setFilter]         = useState<FilterState>(EMPTY_FILTER)
   const [search, setSearch]         = useState('')
@@ -104,6 +107,7 @@ export default function HomeDashboard({
 
   return (
     <div className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
+      <PullIndicator pullDistance={pullDistance} isRefreshing={isRefreshing} triggered={triggered} />
 
       {/* ── Header ── */}
       <div className="page-header pt-safe">

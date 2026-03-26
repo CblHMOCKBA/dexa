@@ -60,7 +60,7 @@ export default function CounterpartyDetail({ counterparty, orders, payments: ini
   const isOverLimit = counterparty.credit_limit > 0 && Math.abs(Math.min(0, balance)) > counterparty.credit_limit
 
   return (
-    <div style={{ paddingBottom: 'calc(80px + var(--sab))' }}>
+    <div style={{ paddingBottom: 'calc(110px + env(safe-area-inset-bottom, 0px))' }}>
 
       {/* Hero карточка */}
       <div style={{ background: '#fff', padding: '20px 16px', borderBottom: '1px solid #F0F1F4' }}>
