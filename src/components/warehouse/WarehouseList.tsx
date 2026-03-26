@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -23,12 +23,12 @@ export default function WarehouseList({
   const router = useRouter()
 
   // Get current user ID for QuickDeal
-  useState(() => {
+  useEffect(() => {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) setCurrentUserId(data.user.id)
     })
-  })
+  }, [])
 
   const [listings, setListings]   = useState<Listing[]>(initialListings)
   const [templates, setTemplates] = useState<ListingTemplate[]>(initialTemplates)
