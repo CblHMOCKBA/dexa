@@ -170,17 +170,36 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
   }
 
   // S/N + IMEI flow
-  const handleSerialScan = useCallback((result: ScanResult, idx: number) => {
+  const handleSerialScan = useCallback((result: ScanResult, idx: number, forcedMode?: ScanMode) => {
+    const mode = forcedMode ?? scanMode
     setScanMode(null); setScanIdx(null)
-    if (result.type === 'imei') {
-      updateSerial(idx, 'imei', result.value)
-      setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
-    } else {
+
+    // Если режим явно задан — игнорируем тип из сканера
+    // (чтобы повторный IMEI не перезаписывал уже заполненный при сканировании S/N)
+    if (mode === 'serial') {
+      // Принудительно пишем в serial_number — даже если сканер опознал как IMEI
       updateSerial(idx, 'serial_number', result.value)
       if (isSmartphone) {
         setTimeout(() => imeiRefs.current[idx]?.focus(), 100)
       } else {
         setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
+      }
+    } else if (mode === 'imei') {
+      // Принудительно пишем в imei
+      updateSerial(idx, 'imei', result.value)
+      setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
+    } else {
+      // Авто-режим — определяем по типу
+      if (result.type === 'imei') {
+        updateSerial(idx, 'imei', result.value)
+        setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
+      } else {
+        updateSerial(idx, 'serial_number', result.value)
+        if (isSmartphone) {
+          setTimeout(() => imeiRefs.current[idx]?.focus(), 100)
+        } else {
+          setTimeout(() => { const n = idx + 1; if (n < qty) snRefs.current[n]?.focus() }, 100)
+        }
       }
     }
   }, [qty, isSmartphone])
@@ -553,7 +572,7 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
         <BarcodeScanner mode="serial" hint="Перемести рамку на штрихкод серийника" onScan={r => handleSerialScan(r, scanIdx)} onClose={() => { setScanMode(null); setScanIdx(null) }} />
       )}
       {scanMode === 'imei' && scanIdx !== null && (
-        <BarcodeScanner mode="imei" hint="Перемести рамку на штрихкод IMEI/MEID" onScan={r => handleSerialScan(r, scanIdx)} onClose={() => { setScanMode(null); setScanIdx(null) }} />
+        <BarcodeScanner mode="imei" hint="Перемести рамку на штрихкод IMEI/MEID" onScan={r => handleSerialScan(r, scanIdx!, 'imei')} onClose={() => { setScanMode(null); setScanIdx(null) }} />
       )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
