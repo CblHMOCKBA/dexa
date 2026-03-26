@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 const DONE   = { bg: 'rgba(0,177,115,0.2)',    color: '#00B173',              label: '✓' }
 const NOW    = { bg: 'rgba(240,185,11,0.2)',    color: '#F0B90B',              label: '→' }
@@ -107,6 +108,7 @@ const TIMELINE = [
 
 export default function RoadmapClient() {
   const [open, setOpen] = useState<Record<string, boolean>>({})
+  const router = useRouter()
 
   function toggle(key: string) {
     setOpen(p => ({ ...p, [key]: !p[key] }))
@@ -142,7 +144,34 @@ export default function RoadmapClient() {
   }
 
   return (
-    <div style={S.body}>
+    <div style={{ minHeight: '100dvh', background: '#0A0A0F' }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '12px 16px',
+        paddingTop: 'calc(12px + env(safe-area-inset-top, 0px))',
+        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        position: 'sticky', top: 0, zIndex: 10,
+        background: '#0A0A0F',
+      }}>
+        <button onClick={() => router.back()} style={{
+          width: 36, height: 36, borderRadius: 10, border: 'none',
+          background: 'rgba(255,255,255,0.08)', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+            stroke="rgba(255,255,255,0.8)" strokeWidth="2.5" strokeLinecap="round">
+            <path d="M19 12H5M12 5l-7 7 7 7"/>
+          </svg>
+        </button>
+        <div>
+          <p style={{ fontSize: 17, fontWeight: 700, color: '#fff' }}>Roadmap</p>
+          <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>Product · Март 2026</p>
+        </div>
+      </div>
+
+      <div style={S.body}>
 
       {/* Timeline */}
       <div style={S.timeline}>
@@ -257,6 +286,7 @@ export default function RoadmapClient() {
           })}
         </div>
       ))}
+    </div>
     </div>
   )
 }
