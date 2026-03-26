@@ -29,7 +29,7 @@ export default async function CounterpartyPage({ params }: { params: Promise<{ i
   if (!cp) notFound()
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
+    <div className="pb-nav" style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
       <div className="screen-header">
         <BackButton href="/counterparties" />
         <div style={{ flex: 1, minWidth: 0 }}>
