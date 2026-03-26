@@ -62,8 +62,12 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', marginBottom: 16 }}>
           <Avatar name={profile.name} size="lg" />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-              <h1 style={{ fontSize: 20, fontWeight: 700, color: '#1A1C21' }}>{profile.name}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <h1 style={{ fontSize: 20, fontWeight: 700, color: '#1A1C21', flex: 1, minWidth: 0 }}>{profile.name}</h1>
+              <button onClick={logout} style={{
+                flexShrink: 0, padding: '5px 11px', borderRadius: 8, border: 'none',
+                background: '#FFEBEA', color: '#E8251F', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              }}>Выйти</button>
               {profile.is_verified && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#FFF8E0', borderRadius: 8, padding: '3px 8px' }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F0B90B" strokeWidth="2.5">
@@ -120,34 +124,29 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
           </div>
         )}
 
-        {/* Кнопки */}
-        <div style={{ display: 'flex', gap: 8, paddingBottom: 10, flexWrap: 'wrap' }}>
+        {/* Кнопки — равная сетка */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, paddingBottom: 14 }}>
           <button onClick={() => setEditing(p => !p)} style={{
-            flex: 1, minWidth: 120, padding: '10px', borderRadius: 12, fontSize: 14, fontWeight: 600,
-            border: '1.5px solid #E0E1E6', background: '#fff', color: '#1A1C21', cursor: 'pointer',
+            padding: '11px 8px', borderRadius: 12, fontSize: 13, fontWeight: 600,
+            border: '1.5px solid #E0E1E6', background: '#fff', color: '#1A1C21',
+            cursor: 'pointer', textAlign: 'center',
           }}>
-            {editing ? 'Отмена' : '✏️ Редактировать'}
+            {editing ? '✕ Отмена' : '✏️ Изменить'}
           </button>
           <Link href="/analytics" style={{
-            padding: '10px 14px', borderRadius: 12, fontSize: 14, fontWeight: 600,
+            padding: '11px 8px', borderRadius: 12, fontSize: 13, fontWeight: 600,
             background: '#EBF2FF', color: '#1249A8', textDecoration: 'none',
-            display: 'flex', alignItems: 'center', gap: 6,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
           }}>
             📊 Аналитика
           </Link>
           <Link href="/roadmap" style={{
-            padding: '10px 14px', borderRadius: 12, fontSize: 14, fontWeight: 600,
-            background: '#1A1C21', color: 'rgba(255,255,255,0.9)', textDecoration: 'none',
-            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '11px 8px', borderRadius: 12, fontSize: 13, fontWeight: 600,
+            background: '#1A1C21', color: 'rgba(255,255,255,0.85)', textDecoration: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
           }}>
             🗺 Roadmap
           </Link>
-          <button onClick={logout} style={{
-            padding: '10px 14px', borderRadius: 12, fontSize: 14, fontWeight: 600,
-            border: '1.5px solid #FFCDD0', background: '#FFEBEA', color: '#E8251F', cursor: 'pointer',
-          }}>
-            Выйти
-          </button>
         </div>
 
         {/* Форма редактирования */}
