@@ -12,9 +12,13 @@ type Props = {
 
 export default function OrderTimer({ createdAt, timerMinutes, orderStatus, onExpire }: Props) {
   const [secsLeft, setSecsLeft] = useState<number>(0)
+  const [mounted, setMounted]   = useState(false)
   const expiredRef = useRef(false)
 
+  useEffect(() => { setMounted(true) }, [])
+
   useEffect(() => {
+    if (!mounted) return
     expiredRef.current = false
     const deadline = new Date(createdAt).getTime() + timerMinutes * 60 * 1000
 
@@ -35,7 +39,7 @@ export default function OrderTimer({ createdAt, timerMinutes, orderStatus, onExp
   }, [createdAt, timerMinutes, orderStatus, onExpire])
 
   // Не показываем таймер если ордер уже не pending
-  if (orderStatus !== 'pending') return null
+  if (!mounted || orderStatus !== 'pending') return null
 
   const pct   = secsLeft / (timerMinutes * 60)
   const mins  = Math.floor(secsLeft / 60)
