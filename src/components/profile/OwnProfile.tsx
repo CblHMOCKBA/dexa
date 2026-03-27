@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -27,40 +27,8 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
   const [saving, setSaving]       = useState(false)
   const [tab, setTab]             = useState<'listings' | 'reviews'>('listings')
   const [showQR, setShowQR]       = useState(false)
-  const qrCanvasRef               = useRef<HTMLCanvasElement>(null)
 
-  // Генерация QR через canvas (qrcodejs)
-  useEffect(() => {
-    if (!showQR || !qrCanvasRef.current) return
-    const url = `${window.location.origin}/profile/${profile.id}`
-    const canvas = qrCanvasRef.current
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
 
-    // Используем QRCode через динамический script
-    const existing = document.getElementById('qrcode-script')
-    const generate = () => {
-      // @ts-expect-error global QRCode
-      if (typeof window.QRCode === 'undefined') { setTimeout(generate, 100); return }
-      canvas.width = 280; canvas.height = 280
-      ctx.fillStyle = '#fff'
-      ctx.fillRect(0, 0, 280, 280)
-      // @ts-expect-error global QRCode
-      const qr = new window.QRCode(canvas, {
-        text: url, width: 280, height: 280,
-        colorDark: '#1A1C21', colorLight: '#ffffff',
-        correctLevel: 3,
-      })
-      void qr
-    }
-    if (existing) { generate() } else {
-      const script = document.createElement('script')
-      script.id = 'qrcode-script'
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'
-      script.onload = generate
-      document.head.appendChild(script)
-    }
-  }, [showQR, profile.id])
 
   async function logout() {
     const supabase = createClient()
@@ -90,7 +58,6 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
   const hasRequisites  = companyName || inn || legalAddr
 
   return (
-    <>
     <div style={{ paddingBottom: 'calc(32px + var(--sab))' }}>
       <div style={{ background: '#fff', padding: '20px 16px 0' }}>
 
@@ -345,7 +312,6 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
         </div>
       )}
     </div>
-
       {/* QR-визитка */}
       {showQR && (
         <div style={{
@@ -372,15 +338,19 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
               </p>
             )}
 
-            {/* QR код */}
+            {/* QR код — Google Charts API, работает везде */}
             <div style={{
               display: 'inline-flex', padding: 12, borderRadius: 16,
               background: '#F8F9FF', border: '1px solid #E0E1E6',
               marginBottom: 16,
             }}>
-              <div id="qr-container">
-                <canvas ref={qrCanvasRef} style={{ display: 'block', borderRadius: 8 }} />
-              </div>
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(typeof window !== 'undefined' ? window.location.origin : 'https://dexa-ten.vercel.app')}/profile/${profile.id}&format=png&margin=1`}
+                alt="QR-визитка"
+                width={240}
+                height={240}
+                style={{ display: 'block', borderRadius: 8 }}
+              />
             </div>
 
             {/* Подпись */}
@@ -395,20 +365,17 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
                 background: '#fff', fontSize: 14, fontWeight: 600, color: '#5A5E72', cursor: 'pointer',
               }}>Закрыть</button>
               <button onClick={() => {
-                const canvas = qrCanvasRef.current
-                if (!canvas) return
-                const link = document.createElement('a')
-                link.download = `dexa-${profile.name}.png`
-                link.href = canvas.toDataURL()
-                link.click()
+                const url = `${window.location.origin}/profile/${profile.id}`
+                navigator.clipboard?.writeText(url).then(() => {
+                  alert('Ссылка скопирована!')
+                }).catch(() => {})
               }} style={{
                 padding: '12px', borderRadius: 12, border: 'none',
                 background: '#1E6FEB', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
-              }}>💾 Сохранить</button>
+              }}>🔗 Копировать</button>
             </div>
           </div>
         </div>
       )}
-    </>
   )
 }
