@@ -58,10 +58,26 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
   const [msgs, setMsgs]           = useState<OptimisticMessage[]>(initialMessages)
   const [text, setText]           = useState('')
   const [panel, setPanel]         = useState<'none'|'share'|'order'>('none')
-  const [timerMins, setTimerMins] = useState(30)
+  const [timerMins, setTimerMins]       = useState(30)
   const [orderLoading, setOrderLoading] = useState(false)
   const [myListings, setMyListings]     = useState<Listing[]>([])
   const [loadingListings, setLoadingListings] = useState(false)
+  // Расширенная форма сделки
+  const [dealPrice, setDealPrice]       = useState('')
+  const [dealQty, setDealQty]           = useState('1')
+  const [dealPayment, setDealPayment]   = useState<'cash'|'transfer'|'crypto'|'other'>('cash')
+  const [dealCourier, setDealCourier]   = useState('')
+  const [dealNewCourier, setNewCourier] = useState('')
+  const [showAddCourier, setShowAddCourier] = useState(false)
+  const [couriers, setCouriers]         = useState<{id:string;name:string;phone:string|null}[]>([])
+  const [loadingCouriers, setLoadingCouriers] = useState(false)
+  const [dealComment, setDealComment]   = useState('')
+  // Добавление партнёра в контакты
+  const [showAddContact, setShowAddContact] = useState(false)
+  const [contactSaving, setContactSaving]   = useState(false)
+  const [contactDone, setContactDone]       = useState(false)
+  const [contactType, setContactType]       = useState<'buyer'|'supplier'|'both'>('both')
+  const [contactPhone, setContactPhone]     = useState('')
   const [showMenu, setShowMenu]         = useState(false)
   const [menuAction, setMenuAction]     = useState<'none'|'delete'|'clear'>('none')
   const [menuLoading, setMenuLoading]   = useState(false)
@@ -78,6 +94,14 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
   const isBuyer     = currentUserId === chat.buyer_id
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'instant' }) }, [])
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { setShowMenu(false); setPanel('none') }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs.length])
 
   useEffect(() => {
@@ -95,6 +119,23 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
       }).subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [chat.id])
+
+  // Загружаем курьеров при открытии панели сделки
+  useEffect(() => {
+    if (panel !== 'order') return
+    setLoadingCouriers(true)
+    const supabase = createClient()
+    supabase.from('counterparties')
+      .select('id, name, phone')
+      .eq('type', 'courier')
+      .then(({ data }) => {
+        setCouriers(data ?? [])
+        setLoadingCouriers(false)
+      })
+    // Предзаполняем цену из листинга
+    if (chat.listing && !(chat.listing as Listing).price) return
+    setDealPrice(String((chat.listing as Listing).price ?? ''))
+  }, [panel])
 
   useEffect(() => {
     if (panel !== 'share' || myListings.length > 0) return
@@ -180,26 +221,71 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
     await send(encodeListingCard(cardData)); setPanel('none')
   }
 
+  async function saveContact() {
+    if (!partner) return
+    setContactSaving(true)
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setContactSaving(false); return }
+    await supabase.from('counterparties').insert({
+      owner_id: user.id,
+      name:     partnerName,
+      phone:    contactPhone.trim() || null,
+      type:     contactType,
+      // Сохраняем ссылку на профиль Dexa
+      notes:    `Добавлен из чата Dexa · profile/${partner.id}`,
+    })
+    setContactSaving(false)
+    setContactDone(true)
+  }
+
   async function createOrder() {
     if (!chat.listing || orderLoading || !isBuyer) return
     setOrderLoading(true)
     const supabase = createClient()
+
+    // Создаём нового курьера если нужно
+    let finalCourierId = dealCourier
+    let finalCourierName = ''
+    if (showAddCourier && dealNewCourier.trim()) {
+      const { data: newCp } = await supabase.from('counterparties').insert({
+        name: dealNewCourier.trim(), type: 'courier', owner_id: currentUserId,
+      }).select('id,name').single()
+      if (newCp) {
+        finalCourierId = newCp.id
+        finalCourierName = newCp.name
+        setCouriers(p => [...p, { id: newCp.id, name: newCp.name, phone: null }])
+      }
+    } else if (dealCourier) {
+      finalCourierName = couriers.find(co => co.id === dealCourier)?.name ?? ''
+    }
+
+    const price = dealPrice ? Number(dealPrice) : (chat.listing as Listing).price
+    const qty = Number(dealQty) || 1
+
     const { data: orderData, error } = await supabase.from('orders').insert({
-      listing_id: chat.listing.id, chat_id: chat.id,
-      buyer_id: chat.buyer_id, seller_id: chat.seller_id,
-      quantity: 1, total_price: chat.listing.price, timer_minutes: timerMins
+      listing_id:    chat.listing.id,
+      chat_id:       chat.id,
+      buyer_id:      chat.buyer_id,
+      seller_id:     chat.seller_id,
+      quantity:      qty,
+      total_price:   price * qty,
+      timer_minutes: timerMins,
+      courier_note:  [finalCourierName, dealComment].filter(Boolean).join(' · ') || null,
     }).select('id').single()
+
     setOrderLoading(false)
     if (!error && orderData) {
-      // Системное сообщение в чат
-      const price = (chat.listing as Listing).price?.toLocaleString('ru-RU')
+      const priceStr = (price * qty).toLocaleString('ru-RU')
+      const courierStr = finalCourierName ? ` · ${finalCourierName}` : ''
       await supabase.from('messages').insert({
-        chat_id: chat.id,
-        sender_id: currentUserId,
-        text: `SYSTEM:ORDER_CREATED:${orderData.id}:${price}:${chat.listing.title}`,
+        chat_id: chat.id, sender_id: currentUserId,
+        text: `SYSTEM:ORDER_CREATED:${orderData.id}:${priceStr}:${chat.listing.title}${courierStr}`,
       })
       setPanel('none')
-      router.push('/orders')
+      setDealPrice(''); setDealQty('1'); setDealCourier('')
+      setNewCourier(''); setShowAddCourier(false); setDealComment('')
+      router.push(`/orders/${orderData.id}`)
     }
   }
 
@@ -252,11 +338,20 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
           {partner?.location && <p style={{ fontSize: 12, color: '#9498AB' }}>{partner.location}</p>}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={() => setPanel(p => p === 'share' ? 'none' : 'share')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: panel === 'share' ? '#EBF2FF' : '#F2F3F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {partner && !isBuyer && (
+            <button title="Добавить в контакты" onClick={() => setShowAddContact(true)} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: contactDone ? '#E6F9F3' : '#F2F3F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {contactDone ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00B173" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9498AB" strokeWidth="2"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+              )}
+            </button>
+          )}
+          <button title="Поделиться карточкой товара" onClick={() => setPanel(p => p === 'share' ? 'none' : 'share')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: panel === 'share' ? '#EBF2FF' : '#F2F3F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={panel === 'share' ? '#1E6FEB' : '#9498AB'} strokeWidth="2"><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><path d="M13 17h8M17 13v8"/></svg>
           </button>
           {chat.listing && isBuyer && chat.listing.status === 'active' && (
-            <button onClick={() => setPanel(p => p === 'order' ? 'none' : 'order')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: panel === 'order' ? '#1E6FEB' : '#F2F3F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <button title="Забронировать товар" onClick={() => setPanel(p => p === 'order' ? 'none' : 'order')} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: panel === 'order' ? '#1E6FEB' : '#F2F3F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={panel === 'order' ? 'white' : '#9498AB'} strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
             </button>
           )}
@@ -325,18 +420,125 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
         </div>
       )}
       {panel === 'order' && chat.listing && (
-        <div style={{ flexShrink: 0, background: 'white', borderBottom: '1px solid #E8E9ED', padding: '14px 16px', animation: 'slide-up 0.2s var(--spring-smooth) both' }}>
+        <div style={{ flexShrink: 0, background: 'white', borderBottom: '1px solid #E8E9ED', padding: '14px 16px', animation: 'slide-up 0.2s var(--spring-smooth) both', maxHeight: '70dvh', overflowY: 'auto' }}>
+
+          {/* Заголовок */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <p style={{ fontSize: 15, fontWeight: 700, color: '#1A1C21' }}>🔒 Забронировать</p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: '#1A1C21' }}>🤝 Провести сделку</p>
             <button onClick={() => setPanel('none')} style={{ width: 28, height: 28, borderRadius: '50%', border: 'none', background: '#F2F3F5', cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
           </div>
-          <div style={{ background: '#F2F3F5', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
-            <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21' }}>{chat.listing.title}</p>
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 700, color: '#1E6FEB', marginTop: 3 }}>{(chat.listing as Listing).price?.toLocaleString('ru-RU')} ₽</p>
+
+          {/* Товар */}
+          <div style={{ background: '#F2F3F5', borderRadius: 10, padding: '10px 12px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{chat.listing.title}</p>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 700, color: '#00B173', flexShrink: 0, marginLeft: 8 }}>{(chat.listing as Listing).price?.toLocaleString('ru-RU')} ₽</p>
           </div>
+
+          {/* Цена + Кол-во */}
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 10 }}>
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 600, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 5 }}>Цена ₽</p>
+              <input
+                type="number" value={dealPrice}
+                onChange={e => setDealPrice(e.target.value)}
+                placeholder={String((chat.listing as Listing).price ?? '')}
+                className="input"
+                style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 16 }}
+              />
+            </div>
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 600, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 5 }}>Кол-во</p>
+              <input
+                type="number" value={dealQty} min={1}
+                onChange={e => setDealQty(e.target.value)}
+                className="input"
+                style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}
+              />
+            </div>
+          </div>
+
+          {/* Метод оплаты */}
+          <div style={{ marginBottom: 10 }}>
+            <p style={{ fontSize: 11, fontWeight: 600, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>Оплата</p>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {([['cash','💵 Нал'],['transfer','🏦 Перевод'],['crypto','₿ Крипто'],['other','📋 Другое']] as const).map(([val, label]) => (
+                <button key={val} type="button" onClick={() => setDealPayment(val)} style={{
+                  padding: '6px 10px', borderRadius: 16, fontSize: 12, fontWeight: 600,
+                  border: 'none', cursor: 'pointer', flexShrink: 0,
+                  background: dealPayment === val ? '#1E6FEB' : '#F2F3F5',
+                  color: dealPayment === val ? '#fff' : '#5A5E72',
+                }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Курьер */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Курьер</p>
+              <button type="button" onClick={() => setShowAddCourier(p => !p)} style={{
+                fontSize: 11, fontWeight: 600, color: '#1E6FEB',
+                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+              }}>
+                {showAddCourier ? '← Выбрать' : '+ Новый'}
+              </button>
+            </div>
+
+            {showAddCourier ? (
+              <input
+                value={dealNewCourier}
+                onChange={e => setNewCourier(e.target.value)}
+                placeholder="Имя нового курьера..."
+                className="input"
+              />
+            ) : (
+              <select
+                value={dealCourier}
+                onChange={e => setDealCourier(e.target.value)}
+                className="input"
+                style={{ color: dealCourier ? '#1A1C21' : '#9498AB' }}
+              >
+                <option value="">— Без курьера / самовывоз —</option>
+                {loadingCouriers ? (
+                  <option disabled>Загрузка...</option>
+                ) : (
+                  couriers.map(courier => (
+                    <option key={courier.id} value={courier.id}>
+                      {courier.name}{courier.phone ? ` · ${courier.phone}` : ''}
+                    </option>
+                  ))
+                )}
+              </select>
+            )}
+          </div>
+
+          {/* Комментарий */}
+          <div style={{ marginBottom: 12 }}>
+            <p style={{ fontSize: 11, fontWeight: 600, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>Комментарий</p>
+            <input
+              value={dealComment}
+              onChange={e => setDealComment(e.target.value)}
+              placeholder="Адрес доставки, заметка..."
+              className="input"
+            />
+          </div>
+
           <TimerSelect value={timerMins} onChange={setTimerMins} />
-          <button onClick={createOrder} disabled={orderLoading} style={{ width: '100%', marginTop: 12, padding: '13px', borderRadius: 12, background: '#1E6FEB', color: '#fff', border: 'none', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: orderLoading ? 0.7 : 1 }}>
-            {orderLoading ? 'Создаём...' : `Забронировать · ${timerMins} мин`}
+
+          {/* Итого */}
+          {dealPrice && (
+            <div style={{ background: '#F8F9FF', borderRadius: 10, padding: '10px 12px', marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <p style={{ fontSize: 12, color: '#9498AB' }}>Итого · {dealQty} шт</p>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 17, fontWeight: 800, color: '#1A1C21' }}>
+                {(Number(dealPrice) * (Number(dealQty) || 1)).toLocaleString('ru-RU')} ₽
+              </p>
+            </div>
+          )}
+
+          <button onClick={createOrder} disabled={orderLoading} style={{ width: '100%', marginTop: 12, padding: '13px', borderRadius: 12, background: '#1E6FEB', color: '#fff', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer', opacity: orderLoading ? 0.7 : 1 }}>
+            {orderLoading ? 'Создаём сделку...' : `🤝 Провести сделку · ${timerMins} мин`}
           </button>
         </div>
       )}
