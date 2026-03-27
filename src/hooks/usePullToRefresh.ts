@@ -33,8 +33,10 @@ export function usePullToRefresh(options: Options = {}): PTRState {
     try {
       if (onRefresh) await onRefresh()
       else {
-        router.refresh()
-        await new Promise(r => setTimeout(r, 900))
+        // router.refresh() не обновляет клиентский useState —
+        // используем reload чтобы гарантированно получить свежие данные
+        window.location.reload()
+        await new Promise(r => setTimeout(r, 1200))
       }
     } finally {
       setIsRefreshing(false)
