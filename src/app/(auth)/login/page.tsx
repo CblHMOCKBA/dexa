@@ -88,6 +88,7 @@ export default function LoginPage() {
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -218,35 +219,80 @@ export default function LoginPage() {
       ) : (
         <div style={{ animation: 'fade-in-up 0.25s ease both' }}>
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {[
-              { label: 'Email', val: email, set: setEmail, ph: 'dealer@gmail.com', type: 'email' },
-              { label: 'Пароль', val: password, set: setPassword, ph: '••••••••', type: 'password' },
-            ].map(f => (
-              <div key={f.label}>
-                <label style={{
-                  display: 'block', fontSize: 11, fontWeight: 600,
-                  color: 'rgba(255,255,255,0.38)', marginBottom: 6,
-                  textTransform: 'uppercase', letterSpacing: '0.08em',
-                }}>
-                  {f.label}
-                </label>
+            {/* Email */}
+            <div>
+              <label style={{
+                display: 'block', fontSize: 11, fontWeight: 600,
+                color: 'rgba(255,255,255,0.38)', marginBottom: 6,
+                textTransform: 'uppercase', letterSpacing: '0.08em',
+              }}>Email</label>
+              <input
+                value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="dealer@gmail.com" type="email" required autoFocus
+                style={{
+                  width: '100%', padding: '13px 16px',
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: 12, color: '#fff',
+                  fontSize: 15, outline: 'none',
+                  transition: 'border-color 0.15s', fontFamily: 'system-ui',
+                }}
+                onFocus={e => { e.target.style.borderColor = '#F0B90B' }}
+                onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)' }}
+              />
+            </div>
+
+            {/* Пароль */}
+            <div>
+              <label style={{
+                display: 'block', fontSize: 11, fontWeight: 600,
+                color: 'rgba(255,255,255,0.38)', marginBottom: 6,
+                textTransform: 'uppercase', letterSpacing: '0.08em',
+              }}>Пароль</label>
+              <div style={{ position: 'relative' }}>
                 <input
-                  value={f.val} onChange={e => f.set(e.target.value)}
-                  placeholder={f.ph} type={f.type} required autoFocus={f.type === 'email'}
+                  value={password} onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  type={showPassword ? 'text' : 'password'}
+                  required
                   style={{
-                    width: '100%', padding: '13px 16px',
+                    width: '100%', padding: '13px 48px 13px 16px',
                     background: 'rgba(255,255,255,0.05)',
                     border: '1px solid rgba(255,255,255,0.1)',
                     borderRadius: 12, color: '#fff',
                     fontSize: 15, outline: 'none',
-                    transition: 'border-color 0.15s',
-                    fontFamily: 'system-ui',
+                    transition: 'border-color 0.15s', fontFamily: 'system-ui',
                   }}
                   onFocus={e => { e.target.style.borderColor = '#F0B90B' }}
                   onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)' }}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(p => !p)}
+                  style={{
+                    position: 'absolute', right: 14, top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    padding: 4, display: 'flex', alignItems: 'center',
+                    color: showPassword ? '#F0B90B' : 'rgba(255,255,255,0.3)',
+                    transition: 'color 0.15s',
+                  }}
+                >
+                  {showPassword ? (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
+                      <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                    </svg>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  )}
+                </button>
               </div>
-            ))}
+            </div>
 
             {error && (
               <div style={{

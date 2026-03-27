@@ -173,7 +173,7 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
     const cardData: ListingCardData = {
       id: listing.id, title: listing.title, price: listing.price,
       brand: listing.brand ?? null, model: (listing as { model?: string }).model ?? null,
-      condition: listing.condition, seller_id: listing.seller_id,
+      condition: (listing.condition as 'new' | 'used') ?? 'new', seller_id: listing.seller_id,
       seller_name: (listing.seller as { name?: string })?.name ?? 'Продавец',
       status: listing.status as 'active'|'reserved'|'sold',
     }

@@ -63,6 +63,7 @@ export default function AnalyticsDashboard({
     return completed.filter(o => new Date(o.created_at) >= start)
   }, [orders, period])
 
+  // Продажи: где я продавец. Ручные сделки (buyer=seller=я) тоже считаем как продажи
   const sales = filtered.filter(o => o.seller_id === userId)
   const purchases = filtered.filter(o => o.buyer_id === userId)
 
@@ -86,8 +87,10 @@ export default function AnalyticsDashboard({
   const topProducts = useMemo(() => {
     const map = new Map<string, { title: string; brand: string | null; count: number; revenue: number }>()
     sales.forEach(o => {
-      const key = o.listing?.title ?? 'Неизвестно'
-      const cur = map.get(key) ?? { title: key, brand: o.listing?.brand ?? null, count: 0, revenue: 0 }
+      // Пропускаем ордера без привязки к товару (ручные сделки без листинга)
+      if (!o.listing?.title) return
+      const key = o.listing.title
+      const cur = map.get(key) ?? { title: key, brand: o.listing.brand ?? null, count: 0, revenue: 0 }
       cur.count += o.quantity ?? 1
       cur.revenue += o.total_price
       map.set(key, cur)

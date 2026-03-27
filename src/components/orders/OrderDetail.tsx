@@ -76,12 +76,15 @@ export default function OrderDetail({
         </div>
 
         {/* Товар */}
-        {order.listing && (
+        {(order.listing || order.listing_id) && (
           <div style={{ marginBottom: 12 }}>
             <p style={{ fontSize: 11, color: '#9498AB', fontFamily: 'var(--font-mono)', marginBottom: 4 }}>Товар</p>
             <p style={{ fontWeight: 700, fontSize: 17, color: '#1A1C21', lineHeight: 1.3 }}>
-              {order.listing.title}
+              {order.listing?.title ?? 'Товар из склада'}
             </p>
+            {order.listing?.brand && (
+              <p style={{ fontSize: 13, color: '#9498AB', marginTop: 2 }}>{order.listing.brand}</p>
+            )}
           </div>
         )}
 

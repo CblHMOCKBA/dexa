@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -26,6 +26,41 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
   const [bankDetails, setBank]    = useState((profile as { bank_details?: string }).bank_details ?? '')
   const [saving, setSaving]       = useState(false)
   const [tab, setTab]             = useState<'listings' | 'reviews'>('listings')
+  const [showQR, setShowQR]       = useState(false)
+  const qrCanvasRef               = useRef<HTMLCanvasElement>(null)
+
+  // Генерация QR через canvas (qrcodejs)
+  useEffect(() => {
+    if (!showQR || !qrCanvasRef.current) return
+    const url = `${window.location.origin}/profile/${profile.id}`
+    const canvas = qrCanvasRef.current
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Используем QRCode через динамический script
+    const existing = document.getElementById('qrcode-script')
+    const generate = () => {
+      // @ts-expect-error global QRCode
+      if (typeof window.QRCode === 'undefined') { setTimeout(generate, 100); return }
+      canvas.width = 280; canvas.height = 280
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, 280, 280)
+      // @ts-expect-error global QRCode
+      const qr = new window.QRCode(canvas, {
+        text: url, width: 280, height: 280,
+        colorDark: '#1A1C21', colorLight: '#ffffff',
+        correctLevel: 3,
+      })
+      void qr
+    }
+    if (existing) { generate() } else {
+      const script = document.createElement('script')
+      script.id = 'qrcode-script'
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'
+      script.onload = generate
+      document.head.appendChild(script)
+    }
+  }, [showQR, profile.id])
 
   async function logout() {
     const supabase = createClient()
@@ -124,8 +159,8 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
           </div>
         )}
 
-        {/* Кнопки — равная сетка */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, paddingBottom: 14 }}>
+        {/* Кнопки */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 8, paddingBottom: 0 }}>
           <button onClick={() => setEditing(p => !p)} style={{
             padding: '11px 8px', borderRadius: 12, fontSize: 13, fontWeight: 600,
             border: '1.5px solid #E0E1E6', background: '#fff', color: '#1A1C21',
@@ -133,6 +168,15 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
           }}>
             {editing ? '✕ Отмена' : '✏️ Изменить'}
           </button>
+          <button onClick={() => setShowQR(true)} style={{
+            padding: '11px 8px', borderRadius: 12, fontSize: 13, fontWeight: 600,
+            border: 'none', background: '#1E6FEB', color: '#fff',
+            cursor: 'pointer', textAlign: 'center',
+          }}>
+            📲 QR-визитка
+          </button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, paddingBottom: 14 }}>
           <Link href="/analytics" style={{
             padding: '11px 8px', borderRadius: 12, fontSize: 13, fontWeight: 600,
             background: '#EBF2FF', color: '#1249A8', textDecoration: 'none',
@@ -300,5 +344,68 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
         </div>
       )}
     </div>
+      {/* QR-визитка */}
+      {showQR && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 200,
+          background: 'rgba(0,0,0,0.7)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          padding: 24,
+        }} onClick={() => setShowQR(false)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#fff', borderRadius: 24, padding: '28px 24px',
+            width: '100%', maxWidth: 340, textAlign: 'center',
+            animation: 'pop-in 0.25s cubic-bezier(0.34,1.56,0.64,1) both',
+          }}>
+            {/* Заголовок */}
+            <p style={{ fontSize: 18, fontWeight: 700, color: '#1A1C21', marginBottom: 4 }}>
+              {profile.name}
+            </p>
+            {profile.shop_name && (
+              <p style={{ fontSize: 13, color: '#9498AB', marginBottom: 4 }}>{profile.shop_name}</p>
+            )}
+            {profile.location && (
+              <p style={{ fontSize: 13, color: '#1E6FEB', fontWeight: 600, marginBottom: 16 }}>
+                📍 {profile.location}
+              </p>
+            )}
+
+            {/* QR код */}
+            <div style={{
+              display: 'inline-flex', padding: 12, borderRadius: 16,
+              background: '#F8F9FF', border: '1px solid #E0E1E6',
+              marginBottom: 16,
+            }}>
+              <div id="qr-container">
+                <canvas ref={qrCanvasRef} style={{ display: 'block', borderRadius: 8 }} />
+              </div>
+            </div>
+
+            {/* Подпись */}
+            <p style={{ fontSize: 12, color: '#9498AB', marginBottom: 20, lineHeight: 1.5 }}>
+              Покажи этот QR покупателю — он увидит твои товары и контакты в Dexa
+            </p>
+
+            {/* Кнопки */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <button onClick={() => setShowQR(false)} style={{
+                padding: '12px', borderRadius: 12, border: '1.5px solid #E0E1E6',
+                background: '#fff', fontSize: 14, fontWeight: 600, color: '#5A5E72', cursor: 'pointer',
+              }}>Закрыть</button>
+              <button onClick={() => {
+                const canvas = qrCanvasRef.current
+                if (!canvas) return
+                const link = document.createElement('a')
+                link.download = `dexa-${profile.name}.png`
+                link.href = canvas.toDataURL()
+                link.click()
+              }} style={{
+                padding: '12px', borderRadius: 12, border: 'none',
+                background: '#1E6FEB', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              }}>💾 Сохранить</button>
+            </div>
+          </div>
+        </div>
+      )}
   )
 }

@@ -42,7 +42,8 @@ export default function WarehouseList({
   const [currentUserId, setCurrentUserId] = useState<string>('')
   const [batchPrice, setBatchPrice]     = useState('')
   const [batchLoading, setBatchLoading] = useState(false)
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null) // id товара для подтверждения
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [archiveConfirm, setArchiveConfirm] = useState<Listing | null>(null)
 
   const filtered = useMemo(() => listings.filter(l => {
     if (statusFilter !== 'all' && l.status !== statusFilter) return false
@@ -59,8 +60,10 @@ export default function WarehouseList({
     [listings]
   )
 
-  const totalValue  = listings.reduce((s, l) => s + l.price * l.quantity, 0)
-  const totalCost   = listings.reduce((s, l) => s + (l.cost_price ?? 0) * l.quantity, 0)
+  // Статистика считается по filtered когда активен фильтр, иначе по всему складу
+  const statsSource = (statusFilter !== 'all' || onlyLowStock) ? filtered : listings
+  const totalValue  = statsSource.reduce((s, l) => s + l.price * l.quantity, 0)
+  const totalCost   = statsSource.reduce((s, l) => s + (l.cost_price ?? 0) * l.quantity, 0)
   const totalMargin = totalCost > 0 ? Math.round(((totalValue - totalCost) / totalValue) * 100) : null
 
   function toggleSelect(id: string) {
@@ -70,12 +73,27 @@ export default function WarehouseList({
     setSelected(filtered.length === selected.size ? new Set() : new Set(filtered.map(l => l.id)))
   }
 
-  async function toggleStatus(l: Listing, e: React.MouseEvent) {
+  function toggleStatus(l: Listing, e: React.MouseEvent) {
     e.stopPropagation()
-    const next = l.status === 'active' ? 'sold' : 'active'
+    if (l.status === 'active') {
+      // Убираем из ленты — показываем подтверждение
+      setArchiveConfirm(l)
+    } else {
+      // Возвращаем в ленту — без подтверждения
+      doToggle(l, 'active')
+    }
+  }
+
+  async function doToggle(l: Listing, next: 'active' | 'sold') {
     const supabase = createClient()
     await supabase.from('listings').update({ status: next }).eq('id', l.id)
     setListings(p => p.map(x => x.id === l.id ? { ...x, status: next as Listing['status'] } : x))
+  }
+
+  async function confirmArchive() {
+    if (!archiveConfirm) return
+    await doToggle(archiveConfirm, 'sold')
+    setArchiveConfirm(null)
   }
 
   function del(id: string, e: React.MouseEvent) {
@@ -186,8 +204,11 @@ export default function WarehouseList({
       {/* Статы */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, padding: '12px 16px 0' }}>
         {[
-          { label: 'В ленте',   val: listings.filter(l => l.status === 'active').length, color: '#1A1C21' },
-          { label: 'На складе', val: `${Math.round(totalValue / 1000)}к ₽`, color: '#1A1C21' },
+          { label: statusFilter === 'all' ? 'В ленте' : statusFilter === 'active' ? 'В ленте' : statusFilter === 'reserved' ? 'Бронь' : 'Архив',
+            val: statsSource.filter(l => statusFilter === 'all' ? l.status === 'active' : l.status === statusFilter).length,
+            color: '#1A1C21' },
+          { label: statusFilter === 'all' ? 'Всего ₽' : 'Сумма',
+            val: totalValue > 0 ? `${Math.round(totalValue / 1000)}к ₽` : '—', color: '#1A1C21' },
           { label: 'Маржа',     val: totalMargin !== null ? `${totalMargin}%` : '—',
             color: totalMargin !== null ? (totalMargin > 15 ? '#00B173' : '#F5A623') : '#9498AB' },
         ].map(s => (
@@ -371,6 +392,41 @@ export default function WarehouseList({
   return (
     <>
       {content}
+
+      {/* Диалог подтверждения архивирования */}
+      {archiveConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 200,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          padding: '0 16px',
+          paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
+        }} onClick={() => setArchiveConfirm(null)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: '100%', maxWidth: 430, background: '#fff',
+            borderRadius: '20px 20px 16px 16px', padding: '20px 16px',
+            animation: 'fade-up 0.2s ease both',
+          }}>
+            <p style={{ fontSize: 17, fontWeight: 700, color: '#1A1C21', marginBottom: 6, textAlign: 'center' }}>
+              Убрать из ленты?
+            </p>
+            <p style={{ fontSize: 14, color: '#9498AB', textAlign: 'center', marginBottom: 20, lineHeight: 1.5 }}>
+              <strong style={{ color: '#1A1C21' }}>{archiveConfirm.title}</strong> станет невидим покупателям.
+              Товар останется на складе, вернуть можно в любой момент.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <button onClick={() => setArchiveConfirm(null)} style={{
+                padding: '13px', borderRadius: 12, border: '1.5px solid #E0E1E6',
+                background: '#fff', fontSize: 15, fontWeight: 600, color: '#5A5E72', cursor: 'pointer',
+              }}>Отмена</button>
+              <button onClick={confirmArchive} style={{
+                padding: '13px', borderRadius: 12, border: 'none',
+                background: '#F2F3F5', color: '#1A1C21', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+              }}>Убрать</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Диалог подтверждения удаления */}
       {deleteConfirm && (
