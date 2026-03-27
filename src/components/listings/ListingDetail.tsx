@@ -64,7 +64,7 @@ export default function ListingDetail({ listing, priceHistory, similar, currentU
   }
 
   return (
-    <div style={{ paddingBottom: 100 }}>
+    <div style={{ paddingBottom: 'calc(180px + env(safe-area-inset-bottom, 0px))' }}>
 
       {/* ── Главный блок: цена + статус ── */}
       <div style={{ background: '#fff', padding: '20px 16px', borderBottom: '1px solid #F0F1F4' }}>
@@ -231,6 +231,7 @@ export default function ListingDetail({ listing, priceHistory, similar, currentU
           borderTop: '1px solid #E0E1E6',
           padding: '12px 16px', paddingBottom: 'calc(12px + var(--sab))',
           display: 'flex', gap: 10, maxWidth: 430, margin: '0 auto',
+          bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
         }}>
           <Link href={`/profile/${listing.seller_id}`} style={{ flexShrink: 0 }}>
             <button style={{
@@ -270,6 +271,7 @@ export default function ListingDetail({ listing, priceHistory, similar, currentU
           borderTop: '1px solid #E0E1E6',
           padding: '12px 16px', paddingBottom: 'calc(12px + var(--sab))',
           display: 'flex', gap: 10, maxWidth: 430, margin: '0 auto',
+          bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
         }}>
           <Link href={`/warehouse/${listing.id}/edit`} style={{ flex: 1, textDecoration: 'none' }}>
             <button style={{
