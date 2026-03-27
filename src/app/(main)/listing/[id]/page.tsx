@@ -39,7 +39,7 @@ export default async function ListingPage({ params }: { params: Promise<{ id: st
     .limit(5)
 
   return (
-    <div style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
+    <div className="pb-nav" style={{ minHeight: '100dvh', background: 'var(--bg)' }}>
       <div className="screen-header">
         <BackButton />
         <div style={{ flex: 1, minWidth: 0 }}>
