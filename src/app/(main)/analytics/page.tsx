@@ -1,13 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import AnalyticsDashboard from '@/components/analytics/AnalyticsDashboard'
-import BottomNav from '@/components/ui/BottomNav'
 
+// FIX: убрали дублирующийся BottomNav — он уже есть в MainLayout
 export default async function AnalyticsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
   const [
     { data: orders },
@@ -46,7 +44,6 @@ export default async function AnalyticsPage() {
         listings={listings ?? []}
         userId={user.id}
       />
-      <BottomNav />
     </div>
   )
 }

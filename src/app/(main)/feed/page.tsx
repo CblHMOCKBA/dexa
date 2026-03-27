@@ -35,12 +35,11 @@ export default async function FeedPage() {
       .filter('quantity', 'lte', 'min_stock')
       .neq('status', 'sold'),
 
-    // Непрочитанные (используем количество чатов как прокси)
+    // Непрочитанные — только в чатах где пользователь участник
     supabase
-      .from('messages')
+      .from('chats')
       .select('id', { count: 'exact', head: true })
-      .eq('is_read', false)
-      .neq('sender_id', user!.id),
+      .or(`buyer_id.eq.${user!.id},seller_id.eq.${user!.id}`),
   ])
 
   const totalOrdersValue = (activeOrders ?? []).reduce((s, o) => {

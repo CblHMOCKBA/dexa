@@ -100,7 +100,7 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
             { val: profile.deals_count, label: 'Сделок' },
             { val: profile.rating > 0 ? profile.rating.toFixed(1) : '—', label: 'Рейтинг' },
             { val: activeListings.length, label: 'Товаров' },
-            { val: profile.followers_count, label: 'Подписчиков' },
+            { val: (profile as { followers_count?: number }).followers_count ?? 0, label: 'Подписчиков' },
           ].map(s => (
             <div key={s.label} style={{ background: '#fff', padding: '11px 6px', textAlign: 'center' }}>
               <p style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 700, color: '#1A1C21' }}>{s.val}</p>
