@@ -64,7 +64,7 @@ export default function ListingDetail({ listing, priceHistory, similar, currentU
   }
 
   return (
-    <div style={{ paddingBottom: 'calc(180px + env(safe-area-inset-bottom, 0px))' }}>
+    <div style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}>
 
       {/* ── Главный блок: цена + статус ── */}
       <div style={{ background: '#fff', padding: '20px 16px', borderBottom: '1px solid #F0F1F4' }}>
@@ -223,67 +223,41 @@ export default function ListingDetail({ listing, priceHistory, similar, currentU
         </div>
       )}
 
-      {/* ── Sticky CTA кнопка ── */}
-      {!isOwner && (
-        <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0,
-          background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(12px)',
-          borderTop: '1px solid #E0E1E6',
-          padding: '12px 16px', paddingBottom: 'calc(12px + var(--sab))',
-          display: 'flex', gap: 10, maxWidth: 430, margin: '0 auto',
-          bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
-        }}>
-          <Link href={`/profile/${listing.seller_id}`} style={{ flexShrink: 0 }}>
+      {/* ── CTA встроена в страницу ── */}
+      <div style={{ background: '#fff', marginTop: 10, padding: '16px' }}>
+        {isOwner ? (
+          <Link href={`/warehouse/${listing.id}/edit`} style={{ textDecoration: 'none' }}>
             <button style={{
-              width: 48, height: 48, borderRadius: 12,
-              border: '1.5px solid #E0E1E6', background: '#fff',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-            }}>
-              <Avatar name={seller?.name ?? 'П'} size="xs" />
-            </button>
-          </Link>
-          {isSold ? (
-            <div style={{
-              flex: 1, padding: '13px', borderRadius: 12, background: '#F2F3F5',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 15, fontWeight: 600, color: '#9498AB',
-            }}>
-              Товар недоступен
-            </div>
-          ) : (
-            <button onClick={goChat} disabled={chatLoading} style={{
-              flex: 1, padding: '13px', borderRadius: 12,
-              background: '#1E6FEB', color: '#fff', border: 'none',
-              fontSize: 15, fontWeight: 700, cursor: 'pointer',
-              opacity: chatLoading ? 0.7 : 1,
-            }}>
-              {chatLoading ? 'Открываем чат...' : '💬 Написать · Купить'}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Кнопки владельца */}
-      {isOwner && (
-        <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0,
-          background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(12px)',
-          borderTop: '1px solid #E0E1E6',
-          padding: '12px 16px', paddingBottom: 'calc(12px + var(--sab))',
-          display: 'flex', gap: 10, maxWidth: 430, margin: '0 auto',
-          bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
-        }}>
-          <Link href={`/warehouse/${listing.id}/edit`} style={{ flex: 1, textDecoration: 'none' }}>
-            <button style={{
-              width: '100%', padding: '13px', borderRadius: 12,
-              border: '1.5px solid #1E6FEB', background: '#fff',
+              width: '100%', padding: '15px', borderRadius: 14,
+              border: '1.5px solid #1E6FEB', background: '#EBF2FF',
               color: '#1E6FEB', fontSize: 15, fontWeight: 700, cursor: 'pointer',
             }}>
-              ✏️ Редактировать
+              ✏️ Редактировать объявление
             </button>
           </Link>
-        </div>
-      )}
+        ) : isSold ? (
+          <div style={{ padding: '15px', borderRadius: 14, background: '#F2F3F5', textAlign: 'center', fontSize: 15, fontWeight: 600, color: '#9498AB' }}>
+            Товар недоступен
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Link href={`/profile/${listing.seller_id}`} style={{ flexShrink: 0, textDecoration: 'none' }}>
+              <div style={{ width: 52, height: 52, borderRadius: 14, border: '1.5px solid #E0E1E6', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Avatar name={seller?.name ?? 'П'} size="xs" />
+              </div>
+            </Link>
+            <button onClick={goChat} disabled={chatLoading} style={{
+              flex: 1, padding: '15px', borderRadius: 14,
+              background: chatLoading ? '#9498AB' : '#1E6FEB',
+              color: '#fff', border: 'none', fontSize: 15, fontWeight: 700,
+              cursor: chatLoading ? 'not-allowed' : 'pointer',
+              transition: 'background 0.15s',
+            }}>
+              {chatLoading ? 'Открываем...' : '💬 Написать · Купить'}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
