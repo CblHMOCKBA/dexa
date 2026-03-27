@@ -6,11 +6,12 @@ import { createClient } from '@/lib/supabase/client'
 import type { Listing } from '@/types'
 import Avatar from '@/components/ui/Avatar'
 
-export default function ListingCard({ listing, index = 0, initialLiked = false, onLikeToggle }: {
+export default function ListingCard({ listing, index = 0, initialLiked = false, onLikeToggle, currentUserId }: {
   listing: Listing
   index?: number
   initialLiked?: boolean
   onLikeToggle?: (id: string, liked: boolean) => void
+  currentUserId?: string
 }) {
   const router = useRouter()
   const [liked, setLiked]           = useState(initialLiked)
@@ -28,6 +29,11 @@ export default function ListingCard({ listing, index = 0, initialLiked = false, 
   async function goChat(e: React.MouseEvent) {
     e.stopPropagation()
     if (chatLoading) return
+    // Проверяем на клиенте — мгновенно, без запроса
+    if (currentUserId && currentUserId === listing.seller_id) {
+      showToast('Это ваше объявление')
+      return
+    }
     setChatLoading(true)
     try {
       const res = await fetch('/api/chat', {
