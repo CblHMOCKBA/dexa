@@ -12,11 +12,12 @@ export default async function CounterpartiesPage() {
     .eq('owner_id', user!.id)
     .order('created_at', { ascending: false })
 
-  // Балансы из view
+  // Балансы из view (может не существовать — не крашим)
   const { data: balances } = await supabase
     .from('counterparty_balance')
     .select('counterparty_id, balance')
     .eq('owner_id', user!.id)
+    .then(r => r.error ? { data: [] } : r)
 
   // Кол-во сделок
   const { data: dealCounts } = await supabase
