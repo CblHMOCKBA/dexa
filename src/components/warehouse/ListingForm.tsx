@@ -11,6 +11,7 @@ type FormData = {
   title: string; brand: string; model: string; condition: 'new' | 'used'
   price: string; quantity: string; cost_price: string; min_stock: string
   description: string; tags: string; upc: string
+  supplier: string; received_at: string
 }
 
 type SerialEntry = { serial_number: string; imei: string }
@@ -19,6 +20,7 @@ const EMPTY: FormData = {
   title: '', brand: '', model: '', condition: 'new',
   price: '', quantity: '1', cost_price: '', min_stock: '0',
   description: '', tags: '', upc: '',
+  supplier: '', received_at: '',
 }
 
 function toForm(d: Partial<Listing>): FormData {
@@ -34,6 +36,8 @@ function toForm(d: Partial<Listing>): FormData {
     description: d.description ?? '',
     tags:        Array.isArray(d.tags) ? d.tags.join(', ') : '',
     upc:         (d as { upc?: string }).upc ?? '',
+    supplier:    (d as { supplier?: string }).supplier ?? '',
+    received_at: (d as { received_at?: string }).received_at ?? '',
   }
 }
 
@@ -652,6 +656,19 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
           <label style={LABEL}>Теги</label>
           <input value={form.tags} onChange={e => f('tags', e.target.value)} placeholder="опт, срочно, новинка" className="input" />
           <p style={{ fontSize: 11, color: '#9498AB', marginTop: 4 }}>Через запятую</p>
+        </div>
+
+        <div>
+          <label style={LABEL}>Поставщик</label>
+          <input value={form.supplier} onChange={e => f('supplier', e.target.value)}
+            placeholder="Имя или компания поставщика"
+            className="input" />
+        </div>
+
+        <div>
+          <label style={LABEL}>Дата поступления</label>
+          <input value={form.received_at} onChange={e => f('received_at', e.target.value)}
+            type="date" className="input" style={{ colorScheme: 'light' }} />
         </div>
         <div>
           <label style={LABEL}>Описание</label>

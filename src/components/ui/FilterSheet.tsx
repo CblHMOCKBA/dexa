@@ -53,6 +53,12 @@ export default function FilterSheet({ value, onApply, onClose }: Props) {
     }
   }, [])
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   function set<K extends keyof FilterState>(k: K, v: FilterState[K]) {
     setLocal(p => ({ ...p, [k]: v }))
   }

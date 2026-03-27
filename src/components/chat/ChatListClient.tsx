@@ -5,6 +5,8 @@ import PullIndicator from '@/components/ui/PullIndicator'
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import type { Chat, Room } from '@/types'
 import Avatar from '@/components/ui/Avatar'
 
@@ -40,8 +42,26 @@ type Props = {
 
 export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
   const { pullDistance, isRefreshing, triggered } = usePullToRefresh()
+  const router = useRouter()
+
+  async function joinRoom(roomId: string) {
+    setJoiningRoom(roomId)
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setJoiningRoom(null); return }
+    await supabase.from('room_members').insert({
+      room_id: roomId, user_id: user.id, role: 'member',
+      joined_at: new Date().toISOString(), invited_by: user.id,
+    })
+    setJoinedRooms(p => new Set([...p, roomId]))
+    setJoiningRoom(null)
+    router.push(`/rooms/${roomId}`)
+  }
+
   const [tab, setTab] = useState<'personal' | 'rooms'>('personal')
   const [search, setSearch] = useState('')
+  const [joiningRoom, setJoiningRoom] = useState<string | null>(null)
+  const [joinedRooms, setJoinedRooms] = useState<Set<string>>(new Set())
 
   const filteredChats = useMemo(() => {
     if (!search.trim()) return chats
@@ -232,13 +252,49 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
             </div>
           ) : (
             <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {filteredRooms.map(room => (
-                <Link key={room.id} href={`/rooms/${room.id}`}
-                  className="press-card" style={{ textDecoration: 'none' }}>
-                  <div className="card-press" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              {filteredRooms.map(room => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const isMember = (room as any).is_member !== false || joinedRooms.has(room.id)
+                const isJoining = joiningRoom === room.id
+                return isMember ? (
+                  <Link key={room.id} href={`/rooms/${room.id}`}
+                    className="press-card" style={{ textDecoration: 'none' }}>
+                    <div className="card-press" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{
+                        width: 46, height: 46, borderRadius: 14, flexShrink: 0,
+                        background: '#EBF2FF', color: '#1249A8',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 18, fontWeight: 700,
+                      }}>
+                        {room.name[0].toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                          <p style={{ fontWeight: 700, fontSize: 15, color: '#1A1C21', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {room.name}
+                          </p>
+                          {room.my_role === 'owner' && (
+                            <span style={{ fontSize: 10, background: '#FFF8E0', color: '#7A5E00', borderRadius: 5, padding: '1px 6px', fontWeight: 700, flexShrink: 0 }}>owner</span>
+                          )}
+                          {room.is_private && (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9498AB" strokeWidth="2.5" style={{ flexShrink: 0 }}>
+                              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+                            </svg>
+                          )}
+                        </div>
+                        <p style={{ fontSize: 12, color: '#9498AB' }}>
+                          {room.member_count ?? '?'} участников{room.description && ` · ${room.description}`}
+                        </p>
+                      </div>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#CDD0D8" strokeWidth="2.5"><path d="m9 18 6-6-6-6"/></svg>
+                    </div>
+                  </Link>
+                ) : (
+                  /* Публичная комната — кнопка Вступить */
+                  <div key={room.id} className="card-press" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, background: '#fff', borderRadius: 16, border: '1px solid #E0E1E6' }}>
                     <div style={{
                       width: 46, height: 46, borderRadius: 14, flexShrink: 0,
-                      background: '#EBF2FF', color: '#1249A8',
+                      background: '#F2F3F5', color: '#9498AB',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 18, fontWeight: 700,
                     }}>
@@ -249,31 +305,26 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
                         <p style={{ fontWeight: 700, fontSize: 15, color: '#1A1C21', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {room.name}
                         </p>
-                        {room.my_role === 'owner' && (
-                          <span style={{ fontSize: 10, background: '#FFF8E0', color: '#7A5E00', borderRadius: 5, padding: '1px 6px', fontWeight: 700, flexShrink: 0 }}>
-                            owner
-                          </span>
-                        )}
-                        {room.is_private && (
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                            stroke="#9498AB" strokeWidth="2.5" style={{ flexShrink: 0 }}>
-                            <rect x="3" y="11" width="18" height="11" rx="2"/>
-                            <path d="M7 11V7a5 5 0 0110 0v4"/>
-                          </svg>
-                        )}
+                        <span style={{ fontSize: 10, background: '#E6F9F3', color: '#006644', borderRadius: 5, padding: '1px 6px', fontWeight: 700, flexShrink: 0 }}>публичная</span>
                       </div>
                       <p style={{ fontSize: 12, color: '#9498AB' }}>
-                        {room.member_count ?? '?'} участников
-                        {room.description && ` · ${room.description}`}
+                        {room.member_count ?? 0} участников{room.description && ` · ${room.description}`}
                       </p>
                     </div>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                      stroke="#CDD0D8" strokeWidth="2.5">
-                      <path d="m9 18 6-6-6-6"/>
-                    </svg>
+                    <button
+                      onClick={() => joinRoom(room.id)}
+                      disabled={isJoining}
+                      style={{
+                        padding: '7px 14px', borderRadius: 10, border: 'none',
+                        background: '#1E6FEB', color: '#fff',
+                        fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                        opacity: isJoining ? 0.7 : 1, flexShrink: 0,
+                      }}>
+                      {isJoining ? '...' : 'Вступить'}
+                    </button>
                   </div>
-                </Link>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
