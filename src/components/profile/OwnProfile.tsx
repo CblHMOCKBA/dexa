@@ -90,6 +90,7 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
   const hasRequisites  = companyName || inn || legalAddr
 
   return (
+    <>
     <div style={{ paddingBottom: 'calc(32px + var(--sab))' }}>
       <div style={{ background: '#fff', padding: '20px 16px 0' }}>
 
@@ -344,6 +345,7 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
         </div>
       )}
     </div>
+
       {/* QR-визитка */}
       {showQR && (
         <div style={{
@@ -407,5 +409,6 @@ export default function OwnProfile({ profile, listings, reviews }: Props) {
           </div>
         </div>
       )}
+    </>
   )
 }
