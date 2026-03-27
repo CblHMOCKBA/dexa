@@ -55,7 +55,7 @@ export default function CounterpartyList({ counterparties }: { counterparties: C
       <PullIndicator pullDistance={pullDistance} isRefreshing={isRefreshing} triggered={triggered} />
       <div className="page-header pt-safe">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#1A1C21' }}>Контрагенты</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: '#1A1C21' }}>Контакты</h1>
           <Link href="/counterparties/new">
             <button style={{
               background: '#1E6FEB', color: '#fff', border: 'none',
