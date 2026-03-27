@@ -39,7 +39,7 @@ const ITEMS = [
   },
   {
     href: '/counterparties',
-    label: 'Контакты',
+    label: 'Контрагенты',
     icon: (on: boolean) => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
         stroke={on ? '#1E6FEB' : '#9498AB'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

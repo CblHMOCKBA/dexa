@@ -42,6 +42,7 @@ export default function WarehouseList({
   const [currentUserId, setCurrentUserId] = useState<string>('')
   const [batchPrice, setBatchPrice]     = useState('')
   const [batchLoading, setBatchLoading] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null) // id товара для подтверждения
 
   const filtered = useMemo(() => listings.filter(l => {
     if (statusFilter !== 'all' && l.status !== statusFilter) return false
@@ -77,11 +78,17 @@ export default function WarehouseList({
     setListings(p => p.map(x => x.id === l.id ? { ...x, status: next as Listing['status'] } : x))
   }
 
-  async function del(id: string, e: React.MouseEvent) {
+  function del(id: string, e: React.MouseEvent) {
     e.stopPropagation()
+    setDeleteConfirm(id)
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirm) return
     const supabase = createClient()
-    await supabase.from('listings').delete().eq('id', id)
-    setListings(p => p.filter(x => x.id !== id))
+    await supabase.from('listings').delete().eq('id', deleteConfirm)
+    setListings(p => p.filter(x => x.id !== deleteConfirm))
+    setDeleteConfirm(null)
   }
 
   async function delTemplate(id: string) {
@@ -112,7 +119,7 @@ export default function WarehouseList({
     router.refresh()
   }
 
-  return (
+  const content = (
     <div className="page-with-nav pb-nav" style={{ background: 'var(--bg)' }}>
 
       <div className="page-header pt-safe">
@@ -310,14 +317,14 @@ export default function WarehouseList({
                             </button>
                           )}
                           <Link href={`/warehouse/${l.id}/edit`}>
-                            <button style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E0E1E6', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <button title="Редактировать" style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E0E1E6', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5A5E72" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                             </button>
                           </Link>
-                          <button onClick={e => toggleStatus(l, e)} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E0E1E6', background: '#fff', cursor: 'pointer', fontSize: 14, color: '#5A5E72', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <button onClick={e => toggleStatus(l, e)} title="Убрать/вернуть в ленту" style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #E0E1E6', background: '#fff', cursor: 'pointer', fontSize: 14, color: '#5A5E72', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             {l.status === 'active' ? '↓' : '↑'}
                           </button>
-                          <button onClick={e => del(l.id, e)} style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #FFCDD0', background: '#FFEBEA', cursor: 'pointer', fontSize: 16, color: '#E8251F', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <button onClick={e => del(l.id, e)} title="Удалить" style={{ width: 32, height: 32, borderRadius: 8, border: '1px solid #FFCDD0', background: '#FFEBEA', cursor: 'pointer', fontSize: 16, color: '#E8251F', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             ×
                           </button>
                         </div>
@@ -359,5 +366,45 @@ export default function WarehouseList({
         />
       )}
     </div>
+  )
+
+  return (
+    <>
+      {content}
+
+      {/* Диалог подтверждения удаления */}
+      {deleteConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 200,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          padding: '0 16px',
+          paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
+        }} onClick={() => setDeleteConfirm(null)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: '100%', maxWidth: 430, background: '#fff',
+            borderRadius: '20px 20px 16px 16px', padding: '20px 16px',
+            animation: 'fade-up 0.2s ease both',
+          }}>
+            <p style={{ fontSize: 17, fontWeight: 700, color: '#1A1C21', marginBottom: 6, textAlign: 'center' }}>
+              Удалить товар?
+            </p>
+            <p style={{ fontSize: 14, color: '#9498AB', textAlign: 'center', marginBottom: 20, lineHeight: 1.5 }}>
+              {listings.find(l => l.id === deleteConfirm)?.title ?? 'Товар'} будет удалён без возможности восстановления
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <button onClick={() => setDeleteConfirm(null)} style={{
+                padding: '13px', borderRadius: 12, border: '1.5px solid #E0E1E6',
+                background: '#fff', fontSize: 15, fontWeight: 600, color: '#5A5E72', cursor: 'pointer',
+              }}>Отмена</button>
+              <button onClick={confirmDelete} style={{
+                padding: '13px', borderRadius: 12, border: 'none',
+                background: '#E8251F', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+              }}>Удалить</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
