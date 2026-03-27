@@ -24,12 +24,6 @@ export default function ListingCard({ listing, index = 0, initialLiked = false }
     const supabase = createClient()
     supabase.auth.getUser().then(({ data }) => setMyUserId(data.user?.id ?? null))
   }, [])
-  const [myUserId, setMyUserId]     = useState<string | null>(null)
-
-  useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data }) => setMyUserId(data.user?.id ?? null))
-  }, [])
 
   function showToast(msg: string) {
     setToast(msg)
