@@ -194,8 +194,16 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
                 const lastMsg  = Array.isArray(lastMsgs) ? lastMsgs[lastMsgs.length - 1] : lastMsgs
                 const timeStr  = lastMsg?.created_at ? msgTime(lastMsg.created_at) : msgTime(chat.created_at)
                 const rawText = lastMsg?.text ?? ''
-                const isCard  = rawText.startsWith('LISTING_CARD:')
-                const displayText = isCard ? '📦 Карточка товара' : rawText
+                const isCard   = rawText.startsWith('LISTING_CARD:')
+                const isSystem = rawText.startsWith('SYSTEM:ORDER_CREATED:')
+                const isReply  = rawText.startsWith('REPLY_TO:')
+                let displayText = rawText
+                if (isCard)   displayText = '📦 Карточка товара'
+                else if (isSystem) displayText = '🔒 Ордер создан'
+                else if (isReply) {
+                  const nl = rawText.indexOf('\n')
+                  displayText = nl > -1 ? rawText.slice(nl + 1) : rawText
+                }
                 const prefix  = lastMsg?.sender_id === currentUserId ? 'Вы: ' : ''
                 const preview = lastMsg?.text
                   ? `${prefix}${displayText}`

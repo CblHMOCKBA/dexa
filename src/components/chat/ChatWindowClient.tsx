@@ -286,7 +286,7 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
       setDealPrice(''); setDealQty('1'); setDealCourier('')
       setNewCourier(''); setShowAddCourier(false); setDealComment('')
       // Небольшая задержка чтобы избежать AbortError при двойной навигации
-      setTimeout(() => router.push('/orders'), 100)
+      setTimeout(() => router.push(`/orders/${orderData.id}`), 100)
     }
   }
 
@@ -322,11 +322,12 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
     setShowMenu(false)
   }
 
-  const menuLeft = ctxMenu ? Math.min(Math.max(ctxMenu.x - 100, 8), (typeof window !== 'undefined' ? window.innerWidth : 400) - 210) : 0
-  const menuTop  = ctxMenu ? Math.min(ctxMenu.y - 10, (typeof window !== 'undefined' ? window.innerHeight : 700) - 180) : 0
+  // Safe SSR - window only used client-side via ctxMenu state (which is null on SSR)
+  const menuLeft = ctxMenu ? Math.min(Math.max(ctxMenu.x - 100, 8), window.innerWidth - 210) : 0
+  const menuTop  = ctxMenu ? Math.min(ctxMenu.y - 10, window.innerHeight - 180) : 0
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', minHeight: '-webkit-fill-available', background: '#F2F3F5', overflow: 'hidden', position: 'fixed', inset: 0 }}>
+    <div suppressHydrationWarning style={{ display: 'flex', flexDirection: 'column', height: '100dvh', minHeight: '-webkit-fill-available', background: '#F2F3F5', overflow: 'hidden', position: 'fixed', inset: 0 }}>
 
       {/* ── HEADER ── */}
       <div style={{ flexShrink: 0, zIndex: 20, position: 'sticky', top: 0, display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px 10px', paddingTop: 'calc(10px + var(--sat))', background: 'rgba(255,255,255,0.97)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid #E8E9ED' }}>
