@@ -64,6 +64,98 @@ type Props = {
   showSaveAsTemplate?: boolean
 }
 
+// ── Компонент добавления серийника при редактировании ──────────────────────
+function AddSerialInEdit({
+  listingId,
+  onAdded,
+}: {
+  listingId: string
+  onAdded: (s: { id: string; serial_number: string | null; imei: string | null; status: string }) => void
+}) {
+  const [open, setOpen]   = useState(false)
+  const [sn, setSn]       = useState('')
+  const [imei, setImei]   = useState('')
+  const [saving, setSaving] = useState(false)
+  const isPhone = true // всегда показываем IMEI поле при добавлении
+
+  async function add() {
+    if (!sn && !imei) return
+    setSaving(true)
+    const { createClient } = await import('@/lib/supabase/client')
+    const supabase = createClient()
+    const { data, error } = await supabase.from('serial_items').insert({
+      listing_id:    listingId,
+      serial_number: sn.trim() || null,
+      imei:          imei.replace(/\D/g, '').slice(0, 15) || null,
+      status:        'available',
+    }).select('id, serial_number, imei, status').single()
+
+    if (!error && data) {
+      onAdded(data)
+      setSn(''); setImei(''); setOpen(false)
+    }
+    setSaving(false)
+  }
+
+  if (!open) return (
+    <button type="button" onClick={() => setOpen(true)} style={{
+      marginTop: 10, width: '100%', padding: '9px', borderRadius: 10,
+      border: '1.5px dashed #C5D8FF', background: 'transparent',
+      color: '#1E6FEB', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+    }}>
+      + Добавить серийник
+    </button>
+  )
+
+  return (
+    <div style={{ marginTop: 10, background: '#fff', borderRadius: 12, padding: 12, border: '1.5px solid #1E6FEB' }}>
+      <p style={{ fontSize: 11, fontWeight: 700, color: '#1249A8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+        Новый серийник
+      </p>
+      <input
+        value={sn} onChange={e => setSn(e.target.value)}
+        placeholder="S/N (напр. JTCWH5YW30)"
+        style={{
+          width: '100%', background: '#F8F9FF', border: '1.5px solid #E0E1E6',
+          borderRadius: 10, padding: '10px 12px', fontSize: 13, color: '#1A1C21',
+          outline: 'none', marginBottom: 8, boxSizing: 'border-box',
+          fontFamily: 'var(--font-mono)',
+        }}
+        onFocus={e => e.target.style.borderColor = '#1E6FEB'}
+        onBlur={e => e.target.style.borderColor = '#E0E1E6'}
+      />
+      <input
+        value={imei} onChange={e => setImei(e.target.value.replace(/\D/g, '').slice(0, 15))}
+        placeholder="IMEI (опционально)"
+        inputMode="numeric" maxLength={15}
+        style={{
+          width: '100%', background: '#F8F9FF', border: '1.5px solid #E0E1E6',
+          borderRadius: 10, padding: '10px 12px', fontSize: 13, color: '#1A1C21',
+          outline: 'none', marginBottom: 10, boxSizing: 'border-box',
+          fontFamily: 'var(--font-mono)',
+        }}
+        onFocus={e => e.target.style.borderColor = '#1E6FEB'}
+        onBlur={e => e.target.style.borderColor = '#E0E1E6'}
+      />
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button type="button" onClick={() => { setOpen(false); setSn(''); setImei('') }} style={{
+          flex: 1, padding: '9px', borderRadius: 10, border: '1.5px solid #E0E1E6',
+          background: '#fff', color: '#5A5E72', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+        }}>
+          Отмена
+        </button>
+        <button type="button" onClick={add} disabled={saving || (!sn && !imei)} style={{
+          flex: 2, padding: '9px', borderRadius: 10, border: 'none',
+          background: (sn || imei) && !saving ? '#1E6FEB' : '#E0E1E6',
+          color: 'white', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+        }}>
+          {saving ? 'Сохраняем...' : '✓ Сохранить'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function ListingForm({ listing, template, showSaveAsTemplate = true }: Props) {
   const router = useRouter()
   const [form, setForm] = useState<FormData>(
@@ -453,6 +545,11 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
                   </div>
                 ))}
               </div>
+            )}
+
+            {/* Добавить новый серийник в режиме редактирования */}
+            {!loadingSerials && (
+              <AddSerialInEdit listingId={listing?.id ?? ''} onAdded={s => setExistingSerials(prev => [...prev, s])} />
             )}
           </div>
         )}

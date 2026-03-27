@@ -66,7 +66,7 @@ export default function ListingCardMessage({ data, currentUserId, chatId, isOwn,
         resolvedChatId = json.id
       }
 
-      const { error: orderErr } = await supabase.from('orders').insert({
+      const { data: orderData, error: orderErr } = await supabase.from('orders').insert({
         listing_id:    data.id,
         chat_id:       resolvedChatId,
         buyer_id:      user.id,
@@ -74,8 +74,15 @@ export default function ListingCardMessage({ data, currentUserId, chatId, isOwn,
         quantity:      1,
         total_price:   data.price,
         timer_minutes: 30,
-      })
+      }).select('id').single()
       if (orderErr) throw new Error(orderErr.message)
+
+      // Системное сообщение в чат
+      await supabase.from('messages').insert({
+        chat_id: resolvedChatId,
+        sender_id: user.id,
+        text: `SYSTEM:ORDER_CREATED:${(orderData as {id:string}).id}:${data.price.toLocaleString('ru-RU')}:${data.title}`,
+      })
 
       setDone(true)
       setTimeout(() => router.push('/orders'), 600)
