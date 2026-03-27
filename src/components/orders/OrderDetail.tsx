@@ -176,11 +176,15 @@ export default function OrderDetail({
           <p style={{ fontSize: 12, fontWeight: 700, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: 'var(--font-mono)' }}>
             Действия
           </p>
+
+          {/* pending: продавец подтверждает бронь */}
           {order.status === 'pending' && isSeller && !order.counter_status && (
-            <button onClick={() => update({ status: 'confirmed' })} className="btn-primary">
+            <button onClick={() => update({ status: 'confirmed', seller_approved: true, seller_approved_at: new Date().toISOString() })} className="btn-primary">
               ✓ Подтвердить бронь
             </button>
           )}
+
+          {/* confirmed: продавец передаёт курьеру */}
           {order.status === 'confirmed' && isSeller && (
             <button onClick={() => update({ status: 'in_delivery' })} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48,
@@ -190,15 +194,57 @@ export default function OrderDetail({
               🚚 Передать курьеру
             </button>
           )}
-          {order.status === 'in_delivery' && !myApproved && (
-            <button onClick={approve} style={{
+
+          {/* in_delivery: продавец подтверждает отправку */}
+          {order.status === 'in_delivery' && isSeller && !order.seller_approved && (
+            <button onClick={() => update({ seller_approved: true, seller_approved_at: new Date().toISOString() })} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48,
+              borderRadius: 12, border: 'none', background: '#1E6FEB',
+              color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+            }}>
+              📦 Подтвердить отправку товара
+            </button>
+          )}
+
+          {/* in_delivery: ждём продавца */}
+          {order.status === 'in_delivery' && isSeller && order.seller_approved && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#E6F9F3', borderRadius: 12 }}>
+              <span style={{ fontSize: 20 }}>✅</span>
+              <p style={{ fontSize: 14, fontWeight: 600, color: '#006644' }}>Отправка подтверждена · ждём покупателя</p>
+            </div>
+          )}
+
+          {/* in_delivery: покупатель подтверждает получение (только после подтверждения продавца) */}
+          {order.status === 'in_delivery' && isBuyer && !isManual && order.seller_approved && !order.buyer_approved && (
+            <button onClick={() => update({ buyer_approved: true, buyer_approved_at: new Date().toISOString(), status: 'completed' })} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48,
               borderRadius: 12, border: 'none', background: '#00B173',
               color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer',
             }}>
-              ✓ Подтвердить получение
+              ✓ Подтвердить получение товара
             </button>
           )}
+
+          {/* in_delivery: покупатель ждёт продавца */}
+          {order.status === 'in_delivery' && isBuyer && !isManual && !order.seller_approved && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#F2F3F5', borderRadius: 12 }}>
+              <span style={{ fontSize: 20 }}>⏳</span>
+              <p style={{ fontSize: 14, fontWeight: 600, color: '#5A5E72' }}>Ждём подтверждения отправки от продавца</p>
+            </div>
+          )}
+
+          {/* Ручная сделка in_delivery — один апрув закрывает */}
+          {order.status === 'in_delivery' && isManual && (
+            <button onClick={() => update({ buyer_approved: true, seller_approved: true, buyer_approved_at: new Date().toISOString(), seller_approved_at: new Date().toISOString(), status: 'completed' })} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48,
+              borderRadius: 12, border: 'none', background: '#00B173',
+              color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+            }}>
+              ✓ Закрыть сделку
+            </button>
+          )}
+
+          {/* Отмена — только на pending */}
           {order.status === 'pending' && (
             <button onClick={() => update({ status: 'cancelled' })} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 44,
