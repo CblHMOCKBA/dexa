@@ -35,10 +35,36 @@ export default function HomeDashboard({
   const [search, setSearch]         = useState('')
   const [showFilter, setShowFilter] = useState(false)
   const [showLocMenu, setShowLocMenu] = useState(false)
-  const [tab, setTab]               = useState<'market' | 'requests'>('market')
+  const [tab, setTab]               = useState<'market' | 'requests' | 'watchlist'>('market')
+  const [watchlistIds, setWatchlistIds] = useState<Set<string>>(new Set())
+  const [watchlistListings, setWatchlistListings] = useState<Listing[]>([])
+  const [loadingWatchlist, setLoadingWatchlist] = useState(false)
   const [requests, setRequests]     = useState<RequestItem[]>([])
   const [myOffers, setMyOffers]     = useState<Record<string, { id: string; price: number; status: string }>>({})
   const [loadingReqs, setLoadingReqs] = useState(false)
+
+  // Загружаем watchlist ids при монте (для показа лайков на карточках)
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.from('watchlist').select('listing_id').then(({ data }) => {
+      setWatchlistIds(new Set((data ?? []).map((w: { listing_id: string }) => w.listing_id)))
+    })
+  }, [])
+
+  // Загружаем полный watchlist при переключении на вкладку
+  useEffect(() => {
+    if (tab !== 'watchlist') return
+    setLoadingWatchlist(true)
+    const supabase = createClient()
+    supabase.from('watchlist')
+      .select('listing_id, price_at_save, listings(*, seller:profiles(*))')
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        const items = (data ?? []).map((w: { listing_id: string; listings: Listing }) => w.listings).filter(Boolean)
+        setWatchlistListings(items as Listing[])
+        setLoadingWatchlist(false)
+      })
+  }, [tab])
 
   useEffect(() => {
     const supabase = createClient()
@@ -159,18 +185,22 @@ export default function HomeDashboard({
           </div>
         </div>
 
-        {/* Табы: Лента / Запросы */}
+        {/* Табы: Лента / Избранное / Запросы */}
         <div style={{ display: 'flex', background: '#F2F3F5', borderRadius: 12, padding: 3, marginBottom: 10 }}>
-          {(['market', 'requests'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{
-              flex: 1, padding: '8px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
-              fontSize: 14, fontWeight: 600,
-              background: tab === t ? '#fff' : 'transparent',
-              color: tab === t ? '#1A1C21' : '#9498AB',
-              boxShadow: tab === t ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-              transition: 'all 0.15s',
+          {([
+            { key: 'market',    label: '🏪 Товары' },
+            { key: 'watchlist', label: `❤️ Избранное${watchlistIds.size > 0 ? ` · ${watchlistIds.size}` : ''}` },
+            { key: 'requests',  label: '📢 Запросы' },
+          ] as const).map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)} style={{
+              flex: 1, padding: '8px 4px', borderRadius: 10, border: 'none', cursor: 'pointer',
+              fontSize: 12, fontWeight: 600,
+              background: tab === t.key ? '#fff' : 'transparent',
+              color: tab === t.key ? '#1A1C21' : '#9498AB',
+              boxShadow: tab === t.key ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+              transition: 'all 0.15s', whiteSpace: 'nowrap',
             }}>
-              {t === 'market' ? '🏪 Товары' : '📢 Запросы'}
+              {t.label}
             </button>
           ))}
         </div>
@@ -308,7 +338,34 @@ export default function HomeDashboard({
               </div>
             ) : (
               <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {filtered.map((l, i) => <ListingCard key={l.id} listing={l} index={i} />)}
+                {filtered.map((l, i) => <ListingCard key={l.id} listing={l} index={i} initialLiked={watchlistIds.has(l.id)} />)}
+              </div>
+            )}
+          </>
+        )}
+
+        {tab === 'watchlist' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <p className="section-label">
+                {loadingWatchlist ? 'Загрузка...' : `Избранное · ${watchlistListings.length}`}
+              </p>
+            </div>
+            {loadingWatchlist ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {[0,1,2].map(i => <div key={i} className="skeleton" style={{ height: 120, borderRadius: 14 }}/>)}
+              </div>
+            ) : watchlistListings.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '50px 24px' }}>
+                <p style={{ fontSize: 36, marginBottom: 12 }}>❤️</p>
+                <p style={{ fontWeight: 700, color: '#1A1C21', marginBottom: 6 }}>Пусто</p>
+                <p style={{ fontSize: 14, color: '#9498AB' }}>Нажми ❤️ на карточке товара чтобы добавить в избранное</p>
+              </div>
+            ) : (
+              <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {watchlistListings.map((l, i) => (
+                  <ListingCard key={l.id} listing={l} index={i} initialLiked={true} />
+                ))}
               </div>
             )}
           </>
