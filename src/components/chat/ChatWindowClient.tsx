@@ -285,7 +285,8 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
       setPanel('none')
       setDealPrice(''); setDealQty('1'); setDealCourier('')
       setNewCourier(''); setShowAddCourier(false); setDealComment('')
-      router.push(`/orders/${orderData.id}`)
+      // Небольшая задержка чтобы избежать AbortError при двойной навигации
+      setTimeout(() => router.push('/orders'), 100)
     }
   }
 
