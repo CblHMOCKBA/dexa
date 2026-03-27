@@ -18,6 +18,18 @@ export default function ListingCard({ listing, index = 0, initialLiked = false }
   const [likeAnim, setLikeAnim]     = useState(false)
   const [toast, setToast]           = useState<string | null>(null)
   const [chatLoading, setChatLoading] = useState(false)
+  const [myUserId, setMyUserId]     = useState<string | null>(null)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data }) => setMyUserId(data.user?.id ?? null))
+  }, [])
+  const [myUserId, setMyUserId]     = useState<string | null>(null)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data }) => setMyUserId(data.user?.id ?? null))
+  }, [])
 
   function showToast(msg: string) {
     setToast(msg)
@@ -29,6 +41,8 @@ export default function ListingCard({ listing, index = 0, initialLiked = false }
   async function goChat(e: React.MouseEvent) {
     e.stopPropagation()
     if (chatLoading) return
+    if (myUserId && myUserId === listing.seller_id) { showToast('Это ваше объявление'); return }
+    if (myUserId && myUserId === listing.seller_id) { showToast('Это ваше объявление'); return }
     setChatLoading(true)
     try {
       const res = await fetch('/api/chat', {
@@ -143,18 +157,24 @@ export default function ListingCard({ listing, index = 0, initialLiked = false }
 
         {/* Кнопки */}
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={goChat} disabled={chatLoading} style={{
-            flex: 1, height: 38, borderRadius: 10, border: 'none', cursor: 'pointer',
-            background: chatLoading ? '#E0E1E6' : '#2AABEE',
-            color: 'white', fontSize: 13, fontWeight: 700,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            transition: 'opacity 0.15s',
-          }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="white" stroke="white" strokeWidth="0">
-              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-            </svg>
-            {chatLoading ? '...' : 'Написать'}
-          </button>
+          {myUserId === listing.seller_id ? (
+            <div style={{ flex: 1, height: 38, borderRadius: 10, background: '#F2F3F5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, color: '#9498AB' }}>
+              Ваше объявление
+            </div>
+          ) : (
+            <button onClick={goChat} disabled={chatLoading} style={{
+              flex: 1, height: 38, borderRadius: 10, border: 'none', cursor: 'pointer',
+              background: chatLoading ? '#E0E1E6' : '#2AABEE',
+              color: 'white', fontSize: 13, fontWeight: 700,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              transition: 'opacity 0.15s',
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="white" stroke="white" strokeWidth="0">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+              {chatLoading ? '...' : 'Написать'}
+            </button>
+          )}
           {seller && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#F2F3F5', borderRadius: 10, padding: '0 12px', height: 38 }}>
               <StarRating rating={seller.rating ?? 0} size={12} />
