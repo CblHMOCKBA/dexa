@@ -6,10 +6,11 @@ import { createClient } from '@/lib/supabase/client'
 import type { Listing } from '@/types'
 import Avatar from '@/components/ui/Avatar'
 
-export default function ListingCard({ listing, index = 0, initialLiked = false }: {
+export default function ListingCard({ listing, index = 0, initialLiked = false, onLikeToggle }: {
   listing: Listing
   index?: number
   initialLiked?: boolean
+  onLikeToggle?: (id: string, liked: boolean) => void
 }) {
   const router = useRouter()
   const [liked, setLiked]           = useState(initialLiked)
@@ -64,6 +65,7 @@ export default function ListingCard({ listing, index = 0, initialLiked = false }
     } else {
       await supabase.from('watchlist').delete().eq('user_id', user.id).eq('listing_id', listing.id)
     }
+    onLikeToggle?.(listing.id, next)
   }
 
   const seller = listing.seller

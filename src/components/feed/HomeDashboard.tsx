@@ -338,7 +338,12 @@ export default function HomeDashboard({
               </div>
             ) : (
               <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {filtered.map((l, i) => <ListingCard key={l.id} listing={l} index={i} initialLiked={watchlistIds.has(l.id)} />)}
+                {filtered.map((l, i) => <ListingCard key={l.id} listing={l} index={i} initialLiked={watchlistIds.has(l.id)}
+                    onLikeToggle={(id, liked) => {
+                      setWatchlistIds(prev => { const s = new Set(prev); liked ? s.add(id) : s.delete(id); return s })
+                      if (!liked) setWatchlistListings(prev => prev.filter(x => x.id !== id))
+                    }}
+                  />)}
               </div>
             )}
           </>
@@ -364,7 +369,14 @@ export default function HomeDashboard({
             ) : (
               <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {watchlistListings.map((l, i) => (
-                  <ListingCard key={l.id} listing={l} index={i} initialLiked={true} />
+                  <ListingCard key={l.id} listing={l} index={i} initialLiked={true}
+                    onLikeToggle={(id, liked) => {
+                      if (!liked) {
+                        setWatchlistListings(prev => prev.filter(x => x.id !== id))
+                        setWatchlistIds(prev => { const s = new Set(prev); s.delete(id); return s })
+                      }
+                    }}
+                  />
                 ))}
               </div>
             )}
