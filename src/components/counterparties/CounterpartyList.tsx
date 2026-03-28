@@ -129,7 +129,7 @@ export default function CounterpartyList({ counterparties }: { counterparties: C
         ) : (
           <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {filtered.map(c => {
-              const tc = TYPE_COLOR[c.type]
+              const tc = TYPE_COLOR[c.type] ?? TYPE_COLOR['buyer']
               return (
                 <Link key={c.id} href={`/counterparties/${c.id}`} className="press-card" style={{ textDecoration: 'none' }}>
                   <div className="card anim-card" style={{ padding: '14px 16px' }}>
@@ -142,7 +142,7 @@ export default function CounterpartyList({ counterparties }: { counterparties: C
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 18, fontWeight: 700,
                       }}>
-                        {c.name[0].toUpperCase()}
+                        {(c.name?.[0] ?? '?').toUpperCase()}
                       </div>
 
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -151,7 +151,7 @@ export default function CounterpartyList({ counterparties }: { counterparties: C
                             {c.name}
                           </p>
                           <span style={{ fontSize: 10, background: tc.bg, color: tc.color, borderRadius: 5, padding: '2px 7px', fontWeight: 700, flexShrink: 0 }}>
-                            {TYPE_LABEL[c.type]}
+                            {TYPE_LABEL[c.type] ?? c.type}
                           </span>
                         </div>
 
