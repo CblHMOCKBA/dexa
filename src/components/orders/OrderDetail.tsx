@@ -172,18 +172,30 @@ export default function OrderDetail({
   const update = useCallback(async (patch: Partial<Order>) => {
     const supabase = createClient()
     await supabase.from('orders').update(patch).eq('id', order.id)
-    // Realtime сам обновит стейт, router.refresh для серверных данных
     router.refresh()
+  }, [order.id, router])
+
+  // Завершение через серверный роут — синхронизирует склад, серийники, deals_count
+  const completeOrder = useCallback(async (role: 'buyer' | 'seller' | 'manual') => {
+    const res = await fetch('/api/order-complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: order.id, role }),
+    })
+    if (res.ok) router.refresh()
   }, [order.id, router])
 
   async function approve() {
     const both = (isBuyer && order.seller_approved) || (isSeller && order.buyer_approved)
-    await update({
-      ...(isBuyer
-        ? { buyer_approved: true, buyer_approved_at: new Date().toISOString() }
-        : { seller_approved: true, seller_approved_at: new Date().toISOString() }),
-      ...(both ? { status: 'completed' as OrderStatus } : {}),
-    })
+    if (both) {
+      await completeOrder(isBuyer ? 'buyer' : 'seller')
+    } else {
+      await update(
+        isBuyer
+          ? { buyer_approved: true, buyer_approved_at: new Date().toISOString() }
+          : { seller_approved: true, seller_approved_at: new Date().toISOString() }
+      )
+    }
   }
 
   return (
@@ -371,7 +383,7 @@ export default function OrderDetail({
             )}
 
             {order.status === 'in_delivery' && isBuyer && !isManual && order.seller_approved && !order.buyer_approved && (
-              <button onClick={() => update({ buyer_approved: true, buyer_approved_at: new Date().toISOString(), status: 'completed' })} style={{
+              <button onClick={() => completeOrder('buyer')} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48,
                 borderRadius: 12, border: 'none', background: '#00B173',
                 color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer',
@@ -389,7 +401,7 @@ export default function OrderDetail({
 
             {/* Ручная сделка in_delivery */}
             {order.status === 'in_delivery' && isManual && (
-              <button onClick={() => update({ buyer_approved: true, seller_approved: true, buyer_approved_at: new Date().toISOString(), seller_approved_at: new Date().toISOString(), status: 'completed' })} style={{
+              <button onClick={() => completeOrder('manual')} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 48,
                 borderRadius: 12, border: 'none', background: '#00B173',
                 color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer',
