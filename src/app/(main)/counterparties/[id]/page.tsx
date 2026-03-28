@@ -23,7 +23,7 @@ export default async function CounterpartyPage({ params }: { params: Promise<{ i
       .select('balance')
       .eq('counterparty_id', id)
       .eq('owner_id', user!.id)
-      .single(),
+      .maybeSingle(),
   ])
 
   if (!cp) notFound()

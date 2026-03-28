@@ -7,11 +7,12 @@ import { useState } from 'react'
 import Link from 'next/link'
 import type { Counterparty } from '@/types'
 
-const TYPE_LABEL = { supplier: 'Поставщик', buyer: 'Покупатель', both: 'Оба' }
-const TYPE_COLOR = {
+const TYPE_LABEL: Record<string, string> = { supplier: 'Поставщик', buyer: 'Покупатель', both: 'Оба', courier: 'Курьер' }
+const TYPE_COLOR: Record<string, { bg: string; color: string }> = {
   supplier: { bg: '#EBF2FF', color: '#1249A8' },
   buyer:    { bg: '#E6F9F3', color: '#006644' },
   both:     { bg: '#F0E8FF', color: '#5B00CC' },
+  courier:  { bg: '#FFF4E0', color: '#7A4F00' },
 }
 
 function BalancePill({ balance }: { balance: number }) {
@@ -32,7 +33,7 @@ function BalancePill({ balance }: { balance: number }) {
 export default function CounterpartyList({ counterparties }: { counterparties: Counterparty[] }) {
   const { pullDistance, isRefreshing, triggered } = usePullToRefresh()
   const [search, setSearch]       = useState('')
-  const [typeFilter, setTypeFilter] = useState<'all' | 'supplier' | 'buyer' | 'both'>('all')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'supplier' | 'buyer' | 'both' | 'courier'>('all')
 
   const filtered = counterparties.filter(c => {
     if (typeFilter !== 'all' && c.type !== typeFilter) return false
@@ -78,14 +79,14 @@ export default function CounterpartyList({ counterparties }: { counterparties: C
 
         {/* Фильтр типа */}
         <div style={{ display: 'flex', gap: 6 }}>
-          {(['all','supplier','buyer','both'] as const).map(t => (
+          {(['all','supplier','buyer','both','courier'] as const).map(t => (
             <button key={t} onClick={() => setTypeFilter(t)} style={{
               padding: '5px 12px', borderRadius: 16, fontSize: 12, fontWeight: 600,
               border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
               background: typeFilter === t ? '#1E6FEB' : '#ECEDF0',
               color: typeFilter === t ? '#fff' : '#5A5E72',
             }}>
-              {t === 'all' ? 'Все' : TYPE_LABEL[t]}
+              {t === 'all' ? 'Все' : t === 'courier' ? '🚚 Курьеры' : TYPE_LABEL[t]}
             </button>
           ))}
         </div>
@@ -129,7 +130,7 @@ export default function CounterpartyList({ counterparties }: { counterparties: C
         ) : (
           <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {filtered.map(c => {
-              const tc = TYPE_COLOR[c.type] ?? TYPE_COLOR['buyer']
+              const tc = TYPE_COLOR[c.type ?? 'buyer'] ?? TYPE_COLOR['buyer']
               return (
                 <Link key={c.id} href={`/counterparties/${c.id}`} className="press-card" style={{ textDecoration: 'none' }}>
                   <div className="card anim-card" style={{ padding: '14px 16px' }}>
@@ -142,7 +143,7 @@ export default function CounterpartyList({ counterparties }: { counterparties: C
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 18, fontWeight: 700,
                       }}>
-                        {(c.name?.[0] ?? '?').toUpperCase()}
+                        {c.type === 'courier' ? '🚚' : (c.name?.[0] ?? '?').toUpperCase()}
                       </div>
 
                       <div style={{ flex: 1, minWidth: 0 }}>
