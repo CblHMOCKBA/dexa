@@ -97,7 +97,7 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
     if (panel !== 'share' || myListings.length > 0) return
     setLoadingListings(true)
     const supabase = createClient()
-    supabase.from('listings').select('id,title,price,brand,status')
+    supabase.from('listings').select('id,title,price,brand,model,status,condition,seller_id')
       .eq('seller_id', currentUserId).eq('status', 'active')
       .order('created_at', { ascending: false }).limit(20)
       .then(({ data }) => { setMyListings((data as Listing[]) ?? []); setLoadingListings(false) })
