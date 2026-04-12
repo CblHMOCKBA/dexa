@@ -1,6 +1,6 @@
 // DEXA · Patch 016 · Добавь в конец src/types/index.ts
 
-export type CounterpartyType = 'supplier' | 'buyer' | 'both'
+export type CounterpartyType = 'supplier' | 'buyer' | 'both' | 'courier'
 export type PaymentDirection  = 'in' | 'out'
 export type PaymentMethod     = 'cash' | 'transfer' | 'crypto' | 'other'
 
