@@ -58,6 +58,7 @@ export default function QuickDealSheet({ listing, userId, onClose }: Props) {
   const [searchCP, setSearchCP]             = useState('')
   const [saving, setSaving]                 = useState(false)
   const [error, setError]                   = useState<string | null>(null)
+  const [dealDone, setDealDone]             = useState(false)
 
   useEffect(() => {
     const supabase = createClient()
@@ -111,9 +112,13 @@ export default function QuickDealSheet({ listing, userId, onClose }: Props) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Ошибка сервера')
-      router.refresh()
-      onClose()
-      router.push(`/orders/${data.id}`)
+      setSaving(false)
+      setDealDone(true)
+      // Даём увидеть галочку, потом закрываем
+      setTimeout(() => {
+        onClose()
+        router.refresh()
+      }, 1200)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Ошибка')
       setSaving(false)
@@ -139,6 +144,30 @@ export default function QuickDealSheet({ listing, userId, onClose }: Props) {
         <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12, paddingBottom: 4 }}>
           <div style={{ width: 36, height: 4, background: '#E0E1E6', borderRadius: 2 }} />
         </div>
+
+        {/* Успешная сделка */}
+        {dealDone ? (
+          <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+            <div style={{
+              width: 72, height: 72, borderRadius: '50%', margin: '0 auto 16px',
+              background: '#E6F9F3', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              animation: 'pop-in 0.35s var(--spring-bounce) both',
+            }}>
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#00B173" strokeWidth="2.5">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </div>
+            <p style={{ fontSize: 20, fontWeight: 700, color: '#1A1C21', marginBottom: 6 }}>Сделка проведена</p>
+            <p style={{ fontSize: 15, color: '#9498AB', marginBottom: 4 }}>{listing.title}</p>
+            <p style={{ fontSize: 22, fontWeight: 800, color: '#00B173', fontFamily: 'var(--font-mono)' }}>
+              {Number(price).toLocaleString('ru-RU')} ₽
+            </p>
+            <p style={{ fontSize: 13, color: '#9498AB', marginTop: 8 }}>
+              → {selectedCP?.name}
+            </p>
+          </div>
+        ) : (
+          <>
 
         {/* Header */}
         <div style={{ padding: '8px 20px 14px', borderBottom: '1px solid #F2F3F5' }}>
@@ -421,6 +450,8 @@ export default function QuickDealSheet({ listing, userId, onClose }: Props) {
             </button>
           )}
         </div>
+          </>
+        )}
       </div>
     </>
   )

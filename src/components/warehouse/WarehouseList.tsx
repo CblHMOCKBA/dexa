@@ -35,7 +35,7 @@ export default function WarehouseList({
   const [templates, setTemplates] = useState<ListingTemplate[]>(initialTemplates)
   const [selected, setSelected]   = useState<Set<string>>(new Set())
   const [search, setSearch]       = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'reserved' | 'sold'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'reserved' | 'sold'>('active')
   const [onlyLowStock, setOnlyLowStock] = useState(false)
   const [batchAction, setBatchAction]   = useState<string | null>(null)
   const [quickDealListing, setQuickDealListing] = useState<Listing | null>(null)
