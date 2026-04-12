@@ -88,7 +88,7 @@ export default function RoomWindowClient({ room, initialMessages, members: initi
   useEffect(() => {
     if (panel !== 'members') return
     const supabase = createClient()
-    supabase.from('room_members').select('*, profile:profiles(*)')
+    supabase.from('room_members').select('*, profile:profiles!room_members_user_id_fkey(*)')
       .eq('room_id', room.id)
       .then(({ data }) => { if (data) setMembers(data as RoomMember[]) })
   }, [panel])

@@ -27,7 +27,7 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
       .limit(50),
     supabase
       .from('room_members')
-      .select('*, profile:profiles(*)')
+      .select('*, profile:profiles!room_members_user_id_fkey(*)')
       .eq('room_id', id),
   ])
 
