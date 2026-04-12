@@ -553,7 +553,15 @@ export default function ListingForm({ listing, template, showSaveAsTemplate = tr
 
             {/* Добавить новый серийник в режиме редактирования */}
             {!loadingSerials && (
-              <AddSerialInEdit listingId={listing?.id ?? ''} onAdded={s => setExistingSerials(prev => [...prev, s])} />
+              <AddSerialInEdit listingId={listing?.id ?? ''} onAdded={s => {
+                setExistingSerials(prev => [...prev, s])
+                // Авто-увеличение количества при добавлении серийника
+                const newQty = String(Number(form.quantity) + 1)
+                setForm(prev => ({ ...prev, quantity: newQty }))
+                // Синхронизируем в БД
+                const supabase = createClient()
+                supabase.from('listings').update({ quantity: Number(newQty) }).eq('id', listing!.id)
+              }} />
             )}
           </div>
         )}

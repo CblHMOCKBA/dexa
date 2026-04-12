@@ -66,13 +66,27 @@ export default function HomeDashboard({
       })
   }, [tab])
 
+  // Синхронизируем при переходе между вкладками (server → client)
+  useEffect(() => { setListings(initialListings) }, [initialListings])
+
   useEffect(() => {
     const supabase = createClient()
     const ch = supabase.channel('feed-rt')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'listings' }, () => router.refresh())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'listings' }, payload => {
+        const row = payload.new as Listing
+        if (row.status === 'active') setListings(prev => [row, ...prev])
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'listings' }, payload => {
+        const row = payload.new as Listing
+        setListings(prev => prev.map(l => l.id === row.id ? { ...l, ...row } : l))
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'listings' }, payload => {
+        const old = payload.old as { id: string }
+        setListings(prev => prev.filter(l => l.id !== old.id))
+      })
       .subscribe()
     return () => { supabase.removeChannel(ch) }
-  }, [router])
+  }, [])
 
   useEffect(() => {
     if (tab !== 'requests') return
