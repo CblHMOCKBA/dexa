@@ -72,12 +72,17 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
   const [couriers, setCouriers]         = useState<{id:string;name:string;phone:string|null}[]>([])
   const [loadingCouriers, setLoadingCouriers] = useState(false)
   const [dealComment, setDealComment]   = useState('')
+  const partner     = chat.buyer_id === currentUserId ? chat.seller : chat.buyer
+  const partnerName = partner?.name ?? 'Продавец'
+  const isBuyer     = currentUserId === chat.buyer_id
+
   // Добавление партнёра в контакты
   const [showAddContact, setShowAddContact] = useState(false)
   const [contactSaving, setContactSaving]   = useState(false)
   const [contactDone, setContactDone]       = useState(false)
-  const [contactType, setContactType]       = useState<'buyer'|'supplier'|'both'>('both')
+  const [contactType, setContactType]       = useState<'buyer'|'supplier'|'both'>(isBuyer ? 'supplier' : 'buyer')
   const [contactPhone, setContactPhone]     = useState('')
+  const [existingCpId, setExistingCpId]     = useState<string | null>(null)
   const [showMenu, setShowMenu]         = useState(false)
   const [menuAction, setMenuAction]     = useState<'none'|'delete'|'clear'>('none')
   const [menuLoading, setMenuLoading]   = useState(false)
@@ -89,11 +94,20 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
   const seenIds      = useRef<Set<string>>(new Set(initialMessages.map(m => m.id)))
   const longTimer    = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const partner     = chat.buyer_id === currentUserId ? chat.seller : chat.buyer
-  const partnerName = partner?.name ?? 'Продавец'
-  const isBuyer     = currentUserId === chat.buyer_id
-
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'instant' }) }, [])
+
+  // Проверяем при монте — есть ли уже контрагент с этим профилем
+  useEffect(() => {
+    if (!partner) return
+    const supabase = createClient()
+    supabase.from('counterparties')
+      .select('id')
+      .eq('dexa_profile_id', partner.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) { setExistingCpId(data.id); setContactDone(true) }
+      })
+  }, [partner])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -227,16 +241,36 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setContactSaving(false); return }
-    await supabase.from('counterparties').insert({
-      owner_id: user.id,
-      name:     partnerName,
-      phone:    contactPhone.trim() || null,
-      type:     contactType,
-      // Сохраняем ссылку на профиль Dexa
-      notes:    `Добавлен из чата Dexa · profile/${partner.id}`,
-    })
+
+    // Проверяем — может уже есть контрагент с этим dexa_profile_id
+    const { data: existing } = await supabase
+      .from('counterparties')
+      .select('id, name')
+      .eq('owner_id', user.id)
+      .eq('dexa_profile_id', partner.id)
+      .maybeSingle()
+
+    if (existing) {
+      // Уже привязан — показываем что готово
+      setContactSaving(false)
+      setContactDone(true)
+      setExistingCpId(existing.id)
+      return
+    }
+
+    // Создаём нового с привязкой к профилю Dexa
+    const { data: newCp } = await supabase.from('counterparties').insert({
+      owner_id:        user.id,
+      name:            partnerName,
+      phone:           contactPhone.trim() || null,
+      type:            contactType,
+      dexa_profile_id: partner.id,
+      notes:           partner.location ? `📍 ${partner.location}` : null,
+    }).select('id').single()
+
     setContactSaving(false)
     setContactDone(true)
+    if (newCp) setExistingCpId(newCp.id)
   }
 
   async function createOrder() {
@@ -340,7 +374,7 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
           {partner?.location && <p style={{ fontSize: 12, color: '#9498AB' }}>{partner.location}</p>}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          {partner && !isBuyer && (
+          {partner && (
             <button title="Добавить в контакты" onClick={() => setShowAddContact(true)} style={{ width: 36, height: 36, borderRadius: 10, border: 'none', cursor: 'pointer', background: contactDone ? '#E6F9F3' : '#F2F3F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {contactDone ? (
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00B173" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -408,6 +442,99 @@ export default function ChatWindowClient({ chat, initialMessages, currentUserId 
                 <span style={{ fontSize: 14, fontWeight: 600, color: item.color }}>{item.label}</span>
               </button>
             ))}
+          </div>
+        </>
+      )}
+
+      {/* ── ADD CONTACT SHEET ── */}
+      {showAddContact && partner && (
+        <>
+          <div onClick={() => setShowAddContact(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, backdropFilter: 'blur(2px)' }} />
+          <div style={{
+            position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 201,
+            background: 'white', borderRadius: '20px 20px 0 0', padding: '0 20px 24px',
+            paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+            animation: 'slide-up 0.25s var(--spring-smooth) both',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12, paddingBottom: 16 }}>
+              <div style={{ width: 36, height: 4, background: '#E0E1E6', borderRadius: 2 }} />
+            </div>
+
+            {contactDone ? (
+              /* Уже сохранён */
+              <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#E6F9F3', margin: '0 auto 12px', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'pop-in 0.3s var(--spring-bounce) both' }}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#00B173" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <p style={{ fontSize: 17, fontWeight: 700, color: '#1A1C21', marginBottom: 4 }}>
+                  {partnerName} в контактах
+                </p>
+                <p style={{ fontSize: 13, color: '#9498AB', marginBottom: 16 }}>
+                  Привязан к профилю Dexa
+                </p>
+                {existingCpId && (
+                  <button onClick={() => { setShowAddContact(false); window.location.href = `/counterparties/${existingCpId}` }} style={{
+                    width: '100%', padding: '13px', borderRadius: 12, border: '1.5px solid #E0E1E6',
+                    background: '#fff', color: '#1E6FEB', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                  }}>
+                    Открыть карточку →
+                  </button>
+                )}
+                <button onClick={() => setShowAddContact(false)} style={{
+                  width: '100%', padding: '13px', borderRadius: 12, border: 'none',
+                  background: '#F2F3F5', color: '#5A5E72', fontSize: 14, fontWeight: 600, cursor: 'pointer', marginTop: 8,
+                }}>
+                  Закрыть
+                </button>
+              </div>
+            ) : (
+              /* Форма добавления */
+              <div>
+                <p style={{ fontSize: 17, fontWeight: 700, color: '#1A1C21', marginBottom: 4 }}>Добавить в контакты</p>
+                <p style={{ fontSize: 13, color: '#9498AB', marginBottom: 16 }}>
+                  {partnerName} будет привязан к профилю Dexa
+                </p>
+
+                {/* Тип контрагента */}
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Тип</p>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                  {([
+                    { val: 'buyer' as const, label: '🛒 Покупатель', bg: '#E6F9F3', color: '#006644' },
+                    { val: 'supplier' as const, label: '📦 Поставщик', bg: '#EBF2FF', color: '#1249A8' },
+                    { val: 'both' as const, label: '🤝 Оба', bg: '#F0E8FF', color: '#5B00CC' },
+                  ]).map(opt => (
+                    <button key={opt.val} onClick={() => setContactType(opt.val)} style={{
+                      flex: 1, padding: '10px 6px', borderRadius: 10, border: 'none', cursor: 'pointer',
+                      background: contactType === opt.val ? opt.bg : '#F2F3F5',
+                      color: contactType === opt.val ? opt.color : '#9498AB',
+                      fontSize: 12, fontWeight: 700, transition: 'all 0.12s',
+                    }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Телефон */}
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#9498AB', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Телефон (опционально)</p>
+                <input
+                  value={contactPhone} onChange={e => setContactPhone(e.target.value)}
+                  placeholder="+7 999 000-00-00" type="tel"
+                  style={{
+                    width: '100%', background: '#F2F3F5', border: '1.5px solid transparent',
+                    borderRadius: 12, padding: '11px 14px', fontSize: 14, color: '#1A1C21',
+                    outline: 'none', marginBottom: 16, boxSizing: 'border-box',
+                  }}
+                />
+
+                <button onClick={saveContact} disabled={contactSaving} style={{
+                  width: '100%', padding: '14px', borderRadius: 14, border: 'none',
+                  background: contactSaving ? '#9498AB' : '#1E6FEB',
+                  color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+                }}>
+                  {contactSaving ? 'Сохраняем...' : `✓ Сохранить ${partnerName}`}
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -48,6 +48,100 @@ export default function CounterpartyDetail({
   const [showPayment, setShowPayment] = useState(false)
   const [confirmDel, setConfirmDel]   = useState(false)
   const [deleting, setDeleting]       = useState(false)
+
+  // Dexa profile linking
+  const [showLinkSheet, setShowLinkSheet] = useState(false)
+  const [linkSearch, setLinkSearch]       = useState('')
+  const [linkResults, setLinkResults]     = useState<{ id: string; name: string; location: string | null; rating: number }[]>([])
+  const [linkSearching, setLinkSearching] = useState(false)
+  const [linking, setLinking]             = useState(false)
+  const [linkedProfile, setLinkedProfile] = useState<{ id: string; name: string; location: string | null; rating: number } | null>(null)
+  const [chatLoading, setChatLoading]     = useState(false)
+
+  // Загружаем привязанный профиль при монте
+  useEffect(() => {
+    if (!counterparty.dexa_profile_id) return
+    const supabase = createClient()
+    supabase.from('profiles')
+      .select('id, name, location, rating')
+      .eq('id', counterparty.dexa_profile_id)
+      .single()
+      .then(({ data }) => { if (data) setLinkedProfile(data) })
+  }, [counterparty.dexa_profile_id])
+
+  async function searchDexaUsers() {
+    if (!linkSearch.trim()) return
+    setLinkSearching(true)
+    const supabase = createClient()
+    const { data } = await supabase.from('profiles')
+      .select('id, name, location, rating')
+      .neq('id', currentUserId)
+      .ilike('name', `%${linkSearch.trim()}%`)
+      .limit(10)
+    setLinkResults(data ?? [])
+    setLinkSearching(false)
+  }
+
+  async function linkProfile(profileId: string) {
+    setLinking(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('counterparties')
+      .update({ dexa_profile_id: profileId })
+      .eq('id', counterparty.id)
+    if (!error) {
+      const profile = linkResults.find(r => r.id === profileId)
+      if (profile) setLinkedProfile(profile)
+      setShowLinkSheet(false)
+    }
+    setLinking(false)
+  }
+
+  async function unlinkProfile() {
+    const supabase = createClient()
+    await supabase.from('counterparties')
+      .update({ dexa_profile_id: null })
+      .eq('id', counterparty.id)
+    setLinkedProfile(null)
+  }
+
+  async function goChat() {
+    if (!linkedProfile || chatLoading) return
+    setChatLoading(true)
+    // Нужен листинг для чата — ищем последний активный у этого продавца
+    const supabase = createClient()
+    const { data: listing } = await supabase.from('listings')
+      .select('id, seller_id')
+      .eq('seller_id', linkedProfile.id)
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle()
+
+    if (listing) {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listing_id: listing.id, seller_id: listing.seller_id }),
+      })
+      const data = await res.json()
+      if (data.id) { setChatLoading(false); router.push(`/chat/${data.id}`); return }
+    }
+
+    // Fallback — ищем существующий чат с этим человеком
+    const { data: existingChat } = await supabase.from('chats')
+      .select('id')
+      .or(
+        `and(buyer_id.eq.${currentUserId},seller_id.eq.${linkedProfile.id}),and(buyer_id.eq.${linkedProfile.id},seller_id.eq.${currentUserId})`
+      )
+      .limit(1)
+      .maybeSingle()
+
+    if (existingChat) {
+      router.push(`/chat/${existingChat.id}`)
+    } else {
+      router.push('/chat')
+    }
+    setChatLoading(false)
+  }
 
   // Safe fallback for unknown types
   const typeKey = counterparty.type ?? 'buyer'
@@ -183,6 +277,39 @@ export default function CounterpartyDetail({
           </p>
         )}
 
+        {/* Привязка к Dexa */}
+        {!isCourier && (
+          linkedProfile ? (
+            <div style={{ background: '#F8F9FF', border: '1.5px solid #C5D9F5', borderRadius: 14, padding: '12px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: '#EBF2FF', color: '#1249A8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, flexShrink: 0 }}>
+                {linkedProfile.name[0].toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1C21' }}>{linkedProfile.name}</p>
+                  <span style={{ fontSize: 9, background: '#1E6FEB', color: '#fff', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>DEXA</span>
+                </div>
+                {linkedProfile.location && <p style={{ fontSize: 12, color: '#9498AB' }}>{linkedProfile.location}</p>}
+                {linkedProfile.rating > 0 && <p style={{ fontSize: 11, color: '#F0B90B', marginTop: 1 }}>★ {linkedProfile.rating.toFixed(1)}</p>}
+              </div>
+              <button onClick={unlinkProfile} title="Отвязать" style={{ width: 28, height: 28, borderRadius: 8, border: 'none', background: '#FFEBEA', color: '#E8251F', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>×</button>
+            </div>
+          ) : (
+            <button onClick={() => setShowLinkSheet(true)} style={{
+              width: '100%', padding: '11px 14px', borderRadius: 12, marginBottom: 14,
+              border: '1.5px dashed #C5D9F5', background: 'transparent',
+              color: '#1249A8', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1E6FEB" strokeWidth="2">
+                <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+                <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+              </svg>
+              Привязать к аккаунту Dexa
+            </button>
+          )
+        )}
+
         {/* Действия — не для курьеров платёж */}
         <div style={{ display: 'flex', gap: 8 }}>
           {!isCourier && (
@@ -193,15 +320,13 @@ export default function CounterpartyDetail({
               + Платёж
             </button>
           )}
-          {counterparty.dexa_profile_id && (
-            <Link href="/chat" style={{ flex: 1 }}>
-              <button style={{
-                width: '100%', padding: '11px', borderRadius: 12, fontSize: 14, fontWeight: 700,
-                background: '#fff', color: '#1A1C21', border: '1.5px solid #E0E1E6', cursor: 'pointer',
-              }}>
-                💬 Написать
-              </button>
-            </Link>
+          {linkedProfile && (
+            <button onClick={goChat} disabled={chatLoading} style={{
+              flex: 1, padding: '11px', borderRadius: 12, fontSize: 14, fontWeight: 700,
+              background: '#fff', color: chatLoading ? '#9498AB' : '#1A1C21', border: '1.5px solid #E0E1E6', cursor: 'pointer',
+            }}>
+              {chatLoading ? '...' : '💬 Написать'}
+            </button>
           )}
         </div>
       </div>
@@ -347,6 +472,91 @@ export default function CounterpartyDetail({
           onClose={() => setShowPayment(false)}
           onSuccess={onPaymentAdded}
         />
+      )}
+
+      {/* Привязка к Dexa — поиск */}
+      {showLinkSheet && (
+        <>
+          <div onClick={() => setShowLinkSheet(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, backdropFilter: 'blur(2px)' }} />
+          <div style={{
+            position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 201,
+            background: 'white', borderRadius: '20px 20px 0 0',
+            padding: '0 20px', maxHeight: '80dvh', display: 'flex', flexDirection: 'column',
+            paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))',
+            animation: 'slide-up 0.25s var(--spring-smooth) both',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12, paddingBottom: 12 }}>
+              <div style={{ width: 36, height: 4, background: '#E0E1E6', borderRadius: 2 }} />
+            </div>
+
+            <p style={{ fontSize: 17, fontWeight: 700, color: '#1A1C21', marginBottom: 4 }}>Найти в Dexa</p>
+            <p style={{ fontSize: 13, color: '#9498AB', marginBottom: 14 }}>Поиск по имени среди пользователей</p>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+              <input
+                value={linkSearch} onChange={e => setLinkSearch(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && searchDexaUsers()}
+                placeholder="Имя пользователя..."
+                autoFocus
+                style={{
+                  flex: 1, background: '#F2F3F5', border: '1.5px solid transparent',
+                  borderRadius: 12, padding: '11px 14px', fontSize: 14, color: '#1A1C21',
+                  outline: 'none', boxSizing: 'border-box',
+                }}
+                onFocus={e => { e.target.style.borderColor = '#1E6FEB' }}
+                onBlur={e => { e.target.style.borderColor = 'transparent' }}
+              />
+              <button onClick={searchDexaUsers} disabled={linkSearching || !linkSearch.trim()} style={{
+                padding: '0 16px', borderRadius: 12, border: 'none',
+                background: linkSearch.trim() ? '#1E6FEB' : '#E0E1E6',
+                color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+              }}>
+                {linkSearching ? '...' : '🔍'}
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', marginBottom: 10 }}>
+              {linkResults.length === 0 && !linkSearching && linkSearch.trim() && (
+                <p style={{ textAlign: 'center', color: '#9498AB', padding: '20px 0', fontSize: 14 }}>
+                  Не найдено
+                </p>
+              )}
+              {linkResults.map(p => (
+                <button key={p.id} onClick={() => linkProfile(p.id)} disabled={linking} style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '12px', borderRadius: 12, border: '1.5px solid #E0E1E6',
+                  background: '#fff', cursor: 'pointer', marginBottom: 8, textAlign: 'left',
+                  transition: 'all 0.12s',
+                }}>
+                  <div style={{
+                    width: 42, height: 42, borderRadius: 12, background: '#EBF2FF', color: '#1249A8',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 16, fontWeight: 700, flexShrink: 0,
+                  }}>
+                    {p.name[0].toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1C21' }}>{p.name}</p>
+                    {p.location && <p style={{ fontSize: 12, color: '#9498AB' }}>{p.location}</p>}
+                  </div>
+                  {p.rating > 0 && (
+                    <span style={{ fontSize: 11, color: '#F0B90B', fontWeight: 700, flexShrink: 0 }}>★ {p.rating.toFixed(1)}</span>
+                  )}
+                  <span style={{ fontSize: 12, color: '#1E6FEB', fontWeight: 700, flexShrink: 0 }}>
+                    Привязать →
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <button onClick={() => setShowLinkSheet(false)} style={{
+              width: '100%', padding: '12px', borderRadius: 12, border: 'none',
+              background: '#F2F3F5', color: '#5A5E72', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+            }}>
+              Закрыть
+            </button>
+          </div>
+        </>
       )}
     </div>
   )

@@ -51,6 +51,37 @@ export default function CounterpartyForm({ counterparty }: { counterparty?: Coun
   const [form, setForm]     = useState<FormData>(counterparty ? fromCounterparty(counterparty) : EMPTY)
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState<string | null>(null)
+  const [dexaProfileId, setDexaProfileId] = useState<string | null>(counterparty?.dexa_profile_id ?? null)
+
+  // Dexa user search
+  const [dexaSearch, setDexaSearch]       = useState('')
+  const [dexaResults, setDexaResults]     = useState<{ id: string; name: string; location: string | null; rating: number }[]>([])
+  const [dexaSearching, setDexaSearching] = useState(false)
+  const [dexaLinked, setDexaLinked]       = useState<{ id: string; name: string; location: string | null } | null>(null)
+
+  async function searchDexa() {
+    if (!dexaSearch.trim()) return
+    setDexaSearching(true)
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    let query = supabase.from('profiles')
+      .select('id, name, location, rating')
+      .ilike('name', `%${dexaSearch.trim()}%`)
+      .limit(8)
+    if (user) query = query.neq('id', user.id)
+    const { data } = await query
+    setDexaResults(data ?? [])
+    setDexaSearching(false)
+  }
+
+  function selectDexaUser(p: { id: string; name: string; location: string | null }) {
+    setDexaProfileId(p.id)
+    setDexaLinked(p)
+    // Автозаполнение имени если пустое
+    if (!form.name.trim()) setForm(prev => ({ ...prev, name: p.name }))
+    setDexaResults([])
+    setDexaSearch('')
+  }
 
   function f<K extends keyof FormData>(k: K, v: FormData[K]) {
     setForm(p => ({ ...p, [k]: v }))
@@ -80,11 +111,11 @@ export default function CounterpartyForm({ counterparty }: { counterparty?: Coun
 
     if (counterparty) {
       const { error: err } = await supabase
-        .from('counterparties').update(payload).eq('id', counterparty.id)
+        .from('counterparties').update({ ...payload, dexa_profile_id: dexaProfileId }).eq('id', counterparty.id)
       if (err) { setError('Ошибка сохранения'); setSaving(false); return }
     } else {
       const { error: err } = await supabase
-        .from('counterparties').insert({ ...payload, owner_id: user.id })
+        .from('counterparties').insert({ ...payload, owner_id: user.id, dexa_profile_id: dexaProfileId })
       if (err) { setError('Ошибка сохранения'); setSaving(false); return }
     }
 
@@ -142,6 +173,73 @@ export default function CounterpartyForm({ counterparty }: { counterparty?: Coun
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Привязка к Dexa */}
+        <div style={{ background: '#F8F9FF', borderRadius: 14, padding: '14px', border: '1px solid #E0E8FF' }}>
+          <p style={{ fontSize: 12, fontWeight: 600, color: '#1249A8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>
+            🔗 Привязать к аккаунту Dexa
+          </p>
+
+          {dexaLinked ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 10, padding: '10px 12px', border: '1.5px solid #C5D9F5' }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: '#EBF2FF', color: '#1249A8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+                {dexaLinked.name[0].toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1C21' }}>{dexaLinked.name}</p>
+                {dexaLinked.location && <p style={{ fontSize: 11, color: '#9498AB' }}>{dexaLinked.location}</p>}
+              </div>
+              <span style={{ fontSize: 9, background: '#1E6FEB', color: '#fff', borderRadius: 4, padding: '1px 5px', fontWeight: 700, flexShrink: 0 }}>DEXA</span>
+              <button type="button" onClick={() => { setDexaLinked(null); setDexaProfileId(null) }} style={{
+                width: 24, height: 24, borderRadius: 6, border: 'none', background: '#FFEBEA',
+                color: '#E8251F', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>×</button>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  value={dexaSearch} onChange={e => setDexaSearch(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), searchDexa())}
+                  placeholder="Поиск по имени в Dexa..."
+                  style={{
+                    flex: 1, background: '#fff', border: '1.5px solid #E0E1E6',
+                    borderRadius: 10, padding: '10px 12px', fontSize: 13, color: '#1A1C21',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+                <button type="button" onClick={searchDexa} disabled={dexaSearching || !dexaSearch.trim()} style={{
+                  padding: '0 14px', borderRadius: 10, border: 'none',
+                  background: dexaSearch.trim() ? '#1E6FEB' : '#E0E1E6',
+                  color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+                }}>
+                  {dexaSearching ? '...' : '🔍'}
+                </button>
+              </div>
+              {dexaResults.length > 0 && (
+                <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {dexaResults.map(p => (
+                    <button type="button" key={p.id} onClick={() => selectDexaUser(p)} style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '9px 12px', borderRadius: 10, border: '1px solid #E0E1E6',
+                      background: '#fff', cursor: 'pointer', textAlign: 'left',
+                    }}>
+                      <div style={{ width: 32, height: 32, borderRadius: 8, background: '#EBF2FF', color: '#1249A8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
+                        {p.name[0].toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21' }}>{p.name}</p>
+                        {p.location && <p style={{ fontSize: 11, color: '#9498AB' }}>{p.location}</p>}
+                      </div>
+                      {p.rating > 0 && <span style={{ fontSize: 10, color: '#F0B90B', fontWeight: 700 }}>★ {p.rating.toFixed(1)}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p style={{ fontSize: 11, color: '#9498AB', marginTop: 8 }}>Необязательно · можно добавить позже</p>
+            </>
+          )}
         </div>
 
         {/* Имя */}
