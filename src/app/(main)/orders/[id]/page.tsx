@@ -10,20 +10,32 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
+  // Основной запрос без counterparty join (может не быть FK)
   const { data: order } = await supabase
     .from('orders')
     .select(`
       *,
       listing:listings(*),
       buyer:profiles!orders_buyer_id_fkey(*),
-      seller:profiles!orders_seller_id_fkey(*),
-      counterparty:counterparties(id, name, company, type, phone)
+      seller:profiles!orders_seller_id_fkey(*)
     `)
     .eq('id', id)
     .or(`buyer_id.eq.${user!.id},seller_id.eq.${user!.id}`)
     .single()
 
   if (!order) notFound()
+
+  // Подгружаем контрагента отдельно (не ломает основной запрос)
+  let counterparty = null
+  if (order.counterparty_id) {
+    const { data: cp } = await supabase
+      .from('counterparties')
+      .select('id, name, company, type, phone')
+      .eq('id', order.counterparty_id)
+      .single()
+    counterparty = cp
+  }
+  const orderWithCp = { ...order, counterparty }
 
   const [{ data: events }, { data: existingReview }, { data: existingDoc }] = await Promise.all([
     supabase.from('order_events').select('*').eq('order_id', id).order('created_at', { ascending: true }),
@@ -54,7 +66,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       </div>
 
       <OrderDetail
-        order={order}
+        order={orderWithCp}
         initialEvents={events ?? []}
         currentUserId={user!.id}
       />
