@@ -1,5 +1,12 @@
 'use client'
 
+function pluralMembers(n: number): string {
+  const abs = Math.abs(n)
+  if (abs % 10 === 1 && abs % 100 !== 11) return `${n} участник`
+  if (abs % 10 >= 2 && abs % 10 <= 4 && (abs % 100 < 10 || abs % 100 >= 20)) return `${n} участника`
+  return `${n} участников`
+}
+
 import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 import PullIndicator from '@/components/ui/PullIndicator'
 
@@ -316,7 +323,7 @@ export default function ChatListClient({ chats, rooms, currentUserId }: Props) {
                         <span style={{ fontSize: 10, background: '#E6F9F3', color: '#006644', borderRadius: 5, padding: '1px 6px', fontWeight: 700, flexShrink: 0 }}>публичная</span>
                       </div>
                       <p style={{ fontSize: 12, color: '#9498AB' }}>
-                        {room.member_count ?? 0} участников{room.description && ` · ${room.description}`}
+                        {pluralMembers(room.member_count ?? 0)}{room.description && ` · ${room.description}`}
                       </p>
                     </div>
                     <button

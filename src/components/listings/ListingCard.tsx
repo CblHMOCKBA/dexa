@@ -35,8 +35,8 @@ export default function ListingCard({ listing, index = 0, initialLiked = false, 
   const listPrice = listing.price
   const diff      = numPrice - listPrice
   const diffPct   = listPrice > 0 ? Math.abs((diff / listPrice) * 100).toFixed(1) : '0'
-  const isLower   = diff < 0
-  const isHigher  = diff > 0
+  const isLower   = diff < 0 && Math.abs(diff / listPrice) >= 0.001
+  const isHigher  = diff > 0 && Math.abs(diff / listPrice) >= 0.001
 
   function showToast(msg: string) {
     setToast(msg)

@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useUnreadCount } from '@/hooks/useUnreadCount'
 
 const ITEMS = [
   {
@@ -18,11 +19,23 @@ const ITEMS = [
   {
     href: '/chat',
     label: 'Чаты',
+    badge: true,
     icon: (on: boolean) => (
       <svg width="24" height="24" viewBox="0 0 24 24"
         fill={on ? '#1E6FEB' : 'none'}
         stroke={on ? '#1E6FEB' : '#9498AB'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+      </svg>
+    ),
+  },
+  {
+    href: '/orders',
+    label: 'Сделки',
+    icon: (on: boolean) => (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+        stroke={on ? '#1E6FEB' : '#9498AB'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 11l3 3L22 4"/>
+        <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
       </svg>
     ),
   },
@@ -34,19 +47,6 @@ const ITEMS = [
         stroke={on ? '#1E6FEB' : '#9498AB'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8"/>
         <path d="M10 12h4"/>
-      </svg>
-    ),
-  },
-  {
-    href: '/counterparties',
-    label: 'Контакты',
-    icon: (on: boolean) => (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
-        stroke={on ? '#1E6FEB' : '#9498AB'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-        <circle cx="9" cy="7" r="4"/>
-        <path d="M23 21v-2a4 4 0 00-3-3.87"/>
-        <path d="M16 3.13a4 4 0 010 7.75"/>
       </svg>
     ),
   },
@@ -67,6 +67,7 @@ const HIDDEN_PATHS = ['/chat/', '/rooms/', '/roadmap']
 
 export default function BottomNav() {
   const path = usePathname()
+  const unreadCount = useUnreadCount()
 
   if (HIDDEN_PATHS.some(p => path.startsWith(p))) return null
 
@@ -104,6 +105,8 @@ export default function BottomNav() {
       }}>
         {ITEMS.map(item => {
           const on = path.startsWith(item.href)
+          const showBadge = item.badge && unreadCount > 0 && !on
+
           return (
             <Link
               key={item.href}
@@ -115,7 +118,7 @@ export default function BottomNav() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 3,
-                width: 64,
+                width: 60,
                 paddingTop: 6,
                 paddingBottom: 6,
                 borderRadius: 20,
@@ -123,9 +126,7 @@ export default function BottomNav() {
                 position: 'relative',
                 WebkitTapHighlightColor: 'transparent',
                 transition: 'background 0.2s ease, box-shadow 0.2s ease',
-                background: on
-                  ? 'rgba(30, 111, 235, 0.10)'
-                  : 'transparent',
+                background: on ? 'rgba(30, 111, 235, 0.10)' : 'transparent',
                 boxShadow: on
                   ? 'inset 0 1px 0 rgba(30,111,235,0.15), 0 1px 4px rgba(30,111,235,0.08)'
                   : 'none',
@@ -133,10 +134,30 @@ export default function BottomNav() {
             >
               <span style={{
                 display: 'flex',
+                position: 'relative',
                 transform: on ? 'scale(1.08)' : 'scale(1)',
                 transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)',
               }}>
                 {item.icon(on)}
+                {showBadge && (
+                  <span style={{
+                    position: 'absolute',
+                    top: -3, right: -5,
+                    minWidth: 16, height: 16,
+                    borderRadius: 8,
+                    background: '#E8251F',
+                    color: '#fff',
+                    fontSize: 10, fontWeight: 700,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    padding: '0 4px',
+                    border: '2px solid rgba(255,255,255,0.9)',
+                    animation: 'bounce-in 0.3s cubic-bezier(0.34,1.56,0.64,1) both',
+                    fontFamily: '-apple-system, BlinkMacSystemFont, system-ui, sans-serif',
+                    lineHeight: 1,
+                  }}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </span>
               <span style={{
                 fontSize: 10,
