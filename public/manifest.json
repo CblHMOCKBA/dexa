@@ -1,10 +1,22 @@
 {
   "name": "Dexa",
   "short_name": "Dexa",
-  "description": "B2B торговая платформа",
+  "description": "B2B торговая платформа для дилеров",
   "start_url": "/feed",
   "display": "standalone",
   "background_color": "#F2F3F5",
   "theme_color": "#F2F3F5",
-  "orientation": "portrait"
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
 }

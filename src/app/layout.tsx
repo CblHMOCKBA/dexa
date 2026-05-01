@@ -36,7 +36,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru">
-      <body className={`${unbounded.variable} ${ibmMono.variable}`}>
+      <body className={`${unbounded.variable} ${ibmMono.variable}`} suppressHydrationWarning>
         {children}
       </body>
     </html>
